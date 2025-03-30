@@ -51,10 +51,7 @@ func TestBrowser_WithIgnoreCertErrors(t *testing.T) {
 	defer s.Close()
 
 	// 复用用户浏览器
-	b, err := NewBrowser(WithDebug(true),
-		WithUserModeBrowser(true),
-		WithChromePath("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
-	)
+	b, err := NewBrowser(WithDebug(true))
 	assert.NoError(t, err)
 
 	vo := NewVisitOptions(WithBrowser(b), WithWaitTimeout(time.Second*20))
@@ -68,8 +65,6 @@ func TestBrowser_WithIgnoreCertErrors(t *testing.T) {
 	b.Close()
 
 	b, err = NewBrowser(WithDebug(true),
-		WithUserModeBrowser(true),
-		WithChromePath("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
 		WithIgnoreCertErrors(true),
 	)
 	assert.NoError(t, err)

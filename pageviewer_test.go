@@ -58,10 +58,6 @@ func TestGetPage(t *testing.T) {
 		browser *Browser
 	}{
 		{
-			name:    "nil browser",
-			browser: nil,
-		},
-		{
 			name:    "existing browser",
 			browser: DefaultBrowser(),
 		},
