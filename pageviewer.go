@@ -23,7 +23,7 @@ func NewVisitOptions(opts ...VisitOption) *VisitOptions {
 
 type VisitOptions struct {
 	waitTimeout   time.Duration              // 等待超时的设置
-	browser       *Browser                   // 浏览器对象
+	browser       *Browser                   // 浏览器对象，只在Visit调用时有效
 	beforeRequest func(page *rod.Page) error // 在请求之前的回调，做一些
 }
 

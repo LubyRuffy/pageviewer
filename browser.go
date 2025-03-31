@@ -30,7 +30,7 @@ func (b *Browser) Close() error {
 }
 
 func (b *Browser) waitPageReady(u string, vo *VisitOptions) (*rod.Page, error) {
-	page, err := vo.browser.GetPage()
+	page, err := b.GetPage()
 	if err != nil {
 		return nil, err
 	}
