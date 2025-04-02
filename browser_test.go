@@ -33,9 +33,9 @@ func TestBrowser_RawHTML(t *testing.T) {
 
 	browser, err := NewBrowser(WithIgnoreCertErrors(true))
 	assert.NoError(t, err)
-	html1, err := browser.RawHTML(s.URL, NewVisitOptions())
+	html1, err := browser.RawHTML(s.URL, NewVisitOptions().PageOptions)
 	assert.NoError(t, err)
-	html2, err := browser.HTML(s.URL, NewVisitOptions())
+	html2, err := browser.HTML(s.URL, NewVisitOptions().PageOptions)
 	assert.NoError(t, err)
 	assert.NotEqual(t, html1, html2)
 	assert.Contains(t, html2, `<div id="app">动态修改的内容</div>`)
@@ -54,7 +54,7 @@ func TestBrowser_WithIgnoreCertErrors(t *testing.T) {
 	b, err := NewBrowser(WithDebug(true))
 	assert.NoError(t, err)
 
-	vo := NewVisitOptions(WithBrowser(b), WithWaitTimeout(time.Second*20))
+	vo := NewVisitOptions(WithBrowser(b), WithWaitTimeout(time.Second*20)).PageOptions
 
 	var html string
 	err = b.Run(s.URL, func(page *rod.Page) error {
@@ -68,7 +68,7 @@ func TestBrowser_WithIgnoreCertErrors(t *testing.T) {
 		WithIgnoreCertErrors(true),
 	)
 	assert.NoError(t, err)
-	vo = NewVisitOptions(WithBrowser(b), WithWaitTimeout(time.Second*20))
+	vo = NewVisitOptions(WithBrowser(b), WithWaitTimeout(time.Second*20)).PageOptions
 
 	err = b.Run(s.URL, func(page *rod.Page) error {
 		html = page.MustHTML()

@@ -16,6 +16,11 @@ var (
 	defaultBrowser *Browser
 )
 
+type PageOptions struct {
+	waitTimeout   time.Duration              // 等待超时的设置
+	beforeRequest func(page *rod.Page) error // 在请求之前的回调，做一些
+}
+
 type Browser struct {
 	*rod.Browser
 }
@@ -29,49 +34,32 @@ func (b *Browser) Close() error {
 	return b.Browser.Close()
 }
 
-func (b *Browser) waitPageReady(u string, vo *VisitOptions) (*rod.Page, error) {
-	page, err := b.GetPage()
-	if err != nil {
-		return nil, err
-	}
-
-	if vo.beforeRequest != nil {
-		err := vo.beforeRequest(page)
-		if err != nil {
-			return nil, err
-		}
-	}
-
+func (b *Browser) WaitPage(page *rod.Page, po *PageOptions) error {
 	s := time.Now()
-	err = page.Navigate(u)
-	if err != nil {
-		return nil, err
-	}
-
-	err = page.WaitLoad()
+	err := page.WaitLoad()
 	if err != nil {
 		if !errors.Is(err, context.DeadlineExceeded) {
-			return nil, err
+			return err
 		}
 	}
 
-	err = page.WaitIdle(vo.waitTimeout - time.Since(s))
+	err = page.WaitIdle(po.waitTimeout - time.Since(s))
 	if err != nil {
 		if !errors.Is(err, context.DeadlineExceeded) {
-			return nil, err
+			return err
 		}
 	}
 
 	// 等待请求都有响应
-	page.WaitRequestIdle(min(vo.waitTimeout-time.Since(s), 500*time.Millisecond), nil, []string{
+	page.WaitRequestIdle(min(po.waitTimeout-time.Since(s), 500*time.Millisecond), nil, []string{
 		``, // 排除广告部分
 	}, nil)()
 
 	// 把差异调整为0.2，放大，不然会一直等待
-	err = page.WaitDOMStable(min(vo.waitTimeout-time.Since(s), time.Second*2), 0.2)
+	err = page.WaitDOMStable(min(po.waitTimeout-time.Since(s), time.Second*2), 0.2)
 	if err != nil {
 		if !errors.Is(err, context.DeadlineExceeded) {
-			return nil, err
+			return err
 		}
 	}
 
@@ -81,10 +69,32 @@ func (b *Browser) waitPageReady(u string, vo *VisitOptions) (*rod.Page, error) {
 	//		return err
 	//	}
 	//}
-	return page, nil
+	return err
 }
 
-func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, vo *VisitOptions) (err error) {
+func (b *Browser) waitPageReady(u string, po *PageOptions) (*rod.Page, error) {
+	page, err := b.GetPage()
+	if err != nil {
+		return nil, err
+	}
+
+	if po.beforeRequest != nil {
+		err := po.beforeRequest(page)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err = page.Navigate(u)
+	if err != nil {
+		return nil, err
+	}
+
+	err = b.WaitPage(page, po)
+	return page, err
+}
+
+func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, po *PageOptions) (err error) {
 	defer func() {
 		if val := recover(); val != nil {
 			if val != nil {
@@ -102,11 +112,11 @@ func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, vo *Visit
 		}
 	}()
 
-	if vo == nil {
-		vo = NewVisitOptions()
+	if po == nil {
+		po = NewVisitOptions().PageOptions
 	}
 
-	page, e := b.waitPageReady(u, vo)
+	page, e := b.waitPageReady(u, po)
 	if e != nil {
 		err = e
 		return
@@ -116,25 +126,25 @@ func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, vo *Visit
 	return onPageLoad(page)
 }
 
-func (b *Browser) Run(url string, onPage func(page *rod.Page) error, vo *VisitOptions) error {
-	return b.run(url, onPage, vo)
+func (b *Browser) Run(url string, onPage func(page *rod.Page) error, po *PageOptions) error {
+	return b.run(url, onPage, po)
 }
 
 // HTML 获取渲染后的页面
-func (b *Browser) HTML(url string, vo *VisitOptions) (string, error) {
+func (b *Browser) HTML(url string, po *PageOptions) (string, error) {
 	var htmlReturn string
 	err := b.run(url, func(page *rod.Page) error {
 		var err error
 		htmlReturn, err = page.HTML()
 		return err
-	}, vo)
+	}, po)
 	return htmlReturn, err
 }
 
 // RawHTML 获取原始HTML，不是渲染后的页面
-func (b *Browser) RawHTML(url string, vo *VisitOptions) (string, error) {
+func (b *Browser) RawHTML(url string, po *PageOptions) (string, error) {
 	var htmlReturn string
-	WithBeforeRequest(func(page *rod.Page) error {
+	po.beforeRequest = func(page *rod.Page) error {
 		go page.EachEvent(func(e *proto.NetworkLoadingFinished) {
 			reply, err := (proto.NetworkGetResponseBody{RequestID: e.RequestID}).Call(page)
 			if err == nil && htmlReturn == "" {
@@ -142,7 +152,8 @@ func (b *Browser) RawHTML(url string, vo *VisitOptions) (string, error) {
 			}
 		})()
 		return nil
-	})(vo)
+	}
+
 	err := b.run(url,
 		func(page *rod.Page) error {
 			if htmlReturn == "" {
@@ -150,7 +161,7 @@ func (b *Browser) RawHTML(url string, vo *VisitOptions) (string, error) {
 			}
 			return nil
 		},
-		vo,
+		po,
 	)
 	return htmlReturn, err
 }
