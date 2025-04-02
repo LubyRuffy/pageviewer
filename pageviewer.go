@@ -48,6 +48,11 @@ func WithBeforeRequest(f func(page *rod.Page) error) VisitOption {
 		vo.beforeRequest = f
 	}
 }
+func WithRemoveInvisibleDiv(removeInvisibleDiv bool) VisitOption {
+	return func(vo *VisitOptions) {
+		vo.removeInvisibleDiv = removeInvisibleDiv
+	}
+}
 
 func Visit(u string, onPageLoad func(page *rod.Page) error, opts ...VisitOption) (err error) {
 	// 生成配置项

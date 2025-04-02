@@ -54,7 +54,7 @@ func TestBrowser_WithIgnoreCertErrors(t *testing.T) {
 	b, err := NewBrowser(WithDebug(true))
 	assert.NoError(t, err)
 
-	vo := NewVisitOptions(WithBrowser(b), WithWaitTimeout(time.Second*20)).PageOptions
+	vo := NewVisitOptions(WithWaitTimeout(time.Second * 20)).PageOptions
 
 	var html string
 	err = b.Run(s.URL, func(page *rod.Page) error {
@@ -68,7 +68,7 @@ func TestBrowser_WithIgnoreCertErrors(t *testing.T) {
 		WithIgnoreCertErrors(true),
 	)
 	assert.NoError(t, err)
-	vo = NewVisitOptions(WithBrowser(b), WithWaitTimeout(time.Second*20)).PageOptions
+	vo = NewVisitOptions(WithWaitTimeout(time.Second * 20)).PageOptions
 
 	err = b.Run(s.URL, func(page *rod.Page) error {
 		html = page.MustHTML()
@@ -77,4 +77,31 @@ func TestBrowser_WithIgnoreCertErrors(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, html)
 	assert.Contains(t, html, "helloworld")
+}
+
+func TestBrowser_RemoveInvisibleElements(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`<html>
+<script>console.log('test')</script>
+<style>body{}</style>
+<div style="display: none;">隐藏的div</div>
+<div style="visibility: hidden;">不可见的div</div>
+<div style="opacity: 0;">透明的div</div>
+<div style="width: 0; height: 0;">零尺寸div</div>
+<div>可见的div</div>
+</html>`))
+	}))
+	var html string
+	vo := NewVisitOptions(WithWaitTimeout(time.Second*20), WithRemoveInvisibleDiv(true)).PageOptions
+	b, err := NewBrowser(WithDebug(true))
+	assert.NoError(t, err)
+	defer b.Close()
+
+	err = b.Run(s.URL, func(page *rod.Page) error {
+		html = page.MustHTML()
+		return nil
+	}, vo)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, html)
 }

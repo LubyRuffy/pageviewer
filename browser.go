@@ -17,8 +17,9 @@ var (
 )
 
 type PageOptions struct {
-	waitTimeout   time.Duration              // 等待超时的设置
-	beforeRequest func(page *rod.Page) error // 在请求之前的回调，做一些
+	waitTimeout        time.Duration              // 等待超时的设置
+	beforeRequest      func(page *rod.Page) error // 在请求之前的回调，做一些
+	removeInvisibleDiv bool                       // 是否移除不可见的div
 }
 
 type Browser struct {
@@ -122,6 +123,80 @@ func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, po *PageO
 		return
 	}
 	defer page.Close()
+
+	if po.removeInvisibleDiv {
+		// 执行 JavaScript 检测并删除不可见的 div
+		_, err = page.Eval(`
+		() => {
+			// 删除当前 DOM 中的所有注释
+			function removeComments() {
+			  // 创建 TreeWalker，过滤出注释节点 (Node.COMMENT_NODE = 8)
+			  const walker = document.createTreeWalker(
+				document.body,           // 从 body 开始遍历
+				NodeFilter.SHOW_COMMENT  // 只显示注释节点
+			  );
+			
+			  // 收集所有注释节点
+			  const comments = [];
+			  let node;
+			  while ((node = walker.nextNode())) {
+				comments.push(node);
+			  }
+			
+			  // 删除所有找到的注释节点
+			  comments.forEach(comment => comment.remove());
+			}
+			removeComments();
+
+			let toRemove = [];
+			toRemove = toRemove.concat(Array.from(document.getElementsByTagName('script')));
+			toRemove = toRemove.concat(Array.from(document.getElementsByTagName('style')));
+			toRemove = toRemove.concat(Array.from(document.getElementsByTagName('meta')));
+			toRemove = toRemove.concat(Array.from(document.getElementsByTagName('link')));
+			toRemove = toRemove.concat(Array.from(document.querySelectorAll('input[type="hidden"]')));
+
+			// 获取所有元素
+			let elements = [];
+			//elements = elements.concat(Array.from(document.getElementsByTagName('div')));
+			//elements = elements.concat(Array.from(document.getElementsByTagName('iframe')));
+			elements = elements.concat(Array.from(document.getElementsByTagName('*')));
+
+			// 检查每个元素是否不可见
+			for (let element of elements) {
+				const style = window.getComputedStyle(element);
+				const rect = element.getBoundingClientRect();
+				
+				if (style.display === 'none' || 
+					style.visibility === 'hidden' || 
+					style.opacity === '0' || 
+					rect.width === 0 || 
+					rect.height === 0) {
+					toRemove.push(element);
+				}
+
+				// 删除内联 style 属性
+				// 获取所有属性
+				const attributes = Array.from(element.attributes);
+				attributes.forEach(attr => {
+				  // 匹配常见的样式相关属性名
+				  if (/^(style|class|width|height|align|valign|bgcolor|border|color|font|margin|padding|data\-|aria\-|id|alt|on)/i.test(attr.name)) {
+					element.removeAttribute(attr.name);
+				  }
+				});
+			}
+
+			// 删除不可见的 element
+			const deleteLength = toRemove.length;
+			toRemove.forEach(element => element.remove());
+			
+			// 返回删除的 element 数量
+			return deleteLength;
+		}
+	`)
+		if err != nil {
+			return err
+		}
+	}
 
 	return onPageLoad(page)
 }
