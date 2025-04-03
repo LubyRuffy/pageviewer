@@ -1,8 +1,9 @@
 package pageviewer
 
 import (
-	"github.com/go-rod/rod"
 	"time"
+
+	"github.com/go-rod/rod"
 )
 
 var (
@@ -16,7 +17,7 @@ func NewVisitOptions(opts ...VisitOption) *VisitOptions {
 			beforeRequest: nil,
 			waitTimeout:   DefaultWaitStableTimeout,
 		},
-		browser: DefaultBrowser(),
+		browser: nil, // 初始化为nil，不要立即创建默认浏览器
 	}
 	for _, opt := range opts {
 		opt(vo)
