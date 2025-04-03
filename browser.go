@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
+	"time"
+
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/go-rod/stealth"
-	"runtime/debug"
-	"time"
 )
 
 var (
@@ -247,6 +248,8 @@ type browserOptions struct {
 	IgnoreCertErrors bool
 	ChromePath       string // 设定后可以复用浏览器cookie
 	UserModeBrowser  bool   // 是否使用用户浏览器
+	ManagerURL       string // 连接到 launcher.Manager 的URL
+	ControlURL       string // 直接连接到已运行浏览器的WebSocket URL
 }
 
 type BrowserOption func(*browserOptions)
@@ -278,6 +281,22 @@ func WithUserModeBrowser(userModeBrowser bool) BrowserOption {
 	}
 }
 
+// WithManagerURL 连接到 launcher.Manager
+// 例如 docker 运行 ghcr.io/go-rod/rod 时使用
+func WithManagerURL(url string) BrowserOption {
+	return func(o *browserOptions) {
+		o.ManagerURL = url
+	}
+}
+
+// WithControlURL 直接使用WebSocket URL连接到已运行的浏览器
+// 例如 "ws://127.0.0.1:9222/devtools/browser/4dcf09f2-ba2b-463a-8ff5-90d27c6cc913"
+func WithControlURL(controlURL string) BrowserOption {
+	return func(o *browserOptions) {
+		o.ControlURL = controlURL
+	}
+}
+
 // NewBrowser 初始化浏览器
 func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 	// 参数配置
@@ -287,24 +306,35 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 	}
 
 	browser := rod.New()
-	var l *launcher.Launcher
-	if bo.UserModeBrowser {
-		l = launcher.NewUserMode()
+
+	// 如果提供了直接的ControlURL，则优先使用
+	if bo.ControlURL != "" {
+		browser = browser.ControlURL(bo.ControlURL)
+	} else if bo.ManagerURL != "" {
+		// 使用Manager模式
+		browser = browser.ControlURL(launcher.MustNewManaged(bo.ManagerURL).MustLaunch())
 	} else {
-		l = launcher.New()
+		// 使用传统模式
+		var l *launcher.Launcher
+		if bo.UserModeBrowser {
+			l = launcher.NewUserMode()
+		} else {
+			l = launcher.New()
+		}
+
+		if bo.Debug {
+			l = l.Headless(false).Devtools(true)
+		}
+		if len(bo.Proxy) > 0 {
+			l = l.Proxy(bo.Proxy)
+		}
+		if len(bo.ChromePath) > 0 {
+			l = l.Bin(bo.ChromePath)
+		}
+
+		browser = browser.ControlURL(l.MustLaunch())
 	}
 
-	if bo.Debug {
-		l = l.Headless(false).Devtools(true)
-	}
-	if len(bo.Proxy) > 0 {
-		l = l.Proxy(bo.Proxy)
-	}
-	if len(bo.ChromePath) > 0 {
-		l = l.Bin(bo.ChromePath)
-	}
-
-	browser = browser.ControlURL(l.MustLaunch())
 	if bo.Debug {
 		browser = browser.Trace(true)
 	}
