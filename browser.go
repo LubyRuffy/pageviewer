@@ -303,6 +303,7 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 	if len(bo.ChromePath) > 0 {
 		l = l.Bin(bo.ChromePath)
 	}
+	l = l.NoSandbox(true)
 
 	browser = browser.ControlURL(l.MustLaunch())
 	if bo.Debug {
