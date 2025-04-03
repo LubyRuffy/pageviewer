@@ -149,6 +149,7 @@ func TestBrowser_RemoveInvisibleElements(t *testing.T) {
 // docker run --rm -p 7317:7317 ghcr.io/go-rod/rod
 func TestConnectToLocalManager(t *testing.T) {
 	// 跳过自动测试，因为需要外部依赖
+	t.Skip("需要已运行的浏览器实例")
 
 	// 连接到本地Manager
 	browser, err := NewBrowser(
