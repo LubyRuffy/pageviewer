@@ -270,41 +270,43 @@ func (b *Browser) RawHTML(url string, po *PageOptions) (string, error) {
 	return htmlReturn, err
 }
 
-type browserOptions struct {
-	Debug            bool
-	Proxy            string
-	IgnoreCertErrors bool
-	ChromePath       string // 设定后可以复用浏览器cookie
-	UserModeBrowser  bool   // 是否使用用户浏览器
-}
+// Links 获取所有链接
+func (b *Browser) Links(url string, po *PageOptions) (string, error) {
+	var htmlReturn string
+	err := b.run(url, func(page *rod.Page) error {
+		var err error
+		elements, err := page.Elements("a")
+		if err != nil {
+			return err
+		}
 
-type BrowserOption func(*browserOptions)
+		var links []string
+		for _, el := range elements {
+			t, err := el.Text()
+			if err != nil {
+				continue
+			}
+			if t == "" {
+				continue
+			}
 
-func WithDebug(debug bool) BrowserOption {
-	return func(o *browserOptions) {
-		o.Debug = debug
-	}
-}
-func WithProxy(proxy string) BrowserOption {
-	return func(o *browserOptions) {
-		o.Proxy = proxy
-	}
-}
-func WithIgnoreCertErrors(ignoreCertErrors bool) BrowserOption {
-	return func(o *browserOptions) {
-		o.IgnoreCertErrors = ignoreCertErrors
-	}
-}
-func WithChromePath(chromePath string) BrowserOption {
-	return func(o *browserOptions) {
-		o.ChromePath = chromePath
-	}
-}
+			href, err := el.Property("href")
+			if err != nil {
+				continue
+			}
+			if !href.Nil() && href.String() != "" {
+				link := href.String()
+				// 不是javascript开头
+				if !strings.HasPrefix(link, "javascript:") {
+					links = append(links, fmt.Sprintf(`<a href="%s">`+t+`</a>`, href.String()))
+				}
+			}
+		}
 
-func WithUserModeBrowser(userModeBrowser bool) BrowserOption {
-	return func(o *browserOptions) {
-		o.UserModeBrowser = userModeBrowser
-	}
+		htmlReturn = strings.Join(links, "\n")
+		return err
+	}, po)
+	return htmlReturn, err
 }
 
 // NewBrowser 初始化浏览器

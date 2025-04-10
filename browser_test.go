@@ -121,3 +121,33 @@ func TestBrowser_HTML(t *testing.T) {
 	assert.Error(t, err)
 
 }
+
+func TestBrowser_Links(t *testing.T) {
+
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`
+        <html>
+            <body>
+                <a href="https://example1.com">Example1</a>
+                <a href="https://example2.com">Example2</a>
+                <a href="https://example3.com">Example3</a>
+                <a href="javascript:a()">Example4</a>
+                <a href="https://example5.com"><img src="https://example6.com"/></a>
+            </body>
+        </html>
+    `))
+	}))
+	defer s.Close()
+
+	browser, err := NewBrowser(WithIgnoreCertErrors(true), WithDebug(true))
+	assert.NoError(t, err)
+	str, err := browser.Links(s.URL, NewVisitOptions().PageOptions)
+	assert.NoError(t, err)
+	assert.Contains(t, str, "https://example1.com")
+	assert.Contains(t, str, "https://example2.com")
+	assert.Contains(t, str, "https://example3.com")
+	assert.NotContains(t, str, "https://example4.com")
+	assert.NotContains(t, str, "https://example5.com")
+
+}
