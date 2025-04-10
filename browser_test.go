@@ -1,12 +1,13 @@
 package pageviewer
 
 import (
-	"github.com/go-rod/rod"
-	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/go-rod/rod"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestBrowser_RawHTML(t *testing.T) {
@@ -104,4 +105,19 @@ func TestBrowser_RemoveInvisibleElements(t *testing.T) {
 	}, vo)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, html)
+}
+
+func TestBrowser_HTML(t *testing.T) {
+
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 返回test/aaa.pdf
+		http.ServeFile(w, r, "./test/aaa.pdf")
+	}))
+	defer s.Close()
+
+	browser, err := NewBrowser(WithIgnoreCertErrors(true), WithDebug(true))
+	assert.NoError(t, err)
+	_, err = browser.HTML(s.URL, NewVisitOptions().PageOptions)
+	assert.Error(t, err)
+
 }

@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
+	"strings"
+	"time"
+
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/go-rod/stealth"
-	"runtime/debug"
-	"time"
 )
 
 var (
@@ -86,13 +88,40 @@ func (b *Browser) waitPageReady(u string, po *PageOptions) (*rod.Page, error) {
 		}
 	}
 
+	// 添加网络响应监听器
+	isHtml := false
+	var lastErr error
+	//var mimeType sync.Map
+	go page.EachEvent(func(e *proto.NetworkResponseReceived) {
+		//mimeType.LoadOrStore(e.Response.MIMEType, struct{}{})
+		if strings.Contains(e.Response.MIMEType, "text/") {
+			isHtml = true
+		} else {
+			if !isHtml {
+				//mimeType.Range(func(key, value any) bool {
+				//	log.Println(key)
+				//	return true
+				//})
+				//log.Println(errors.New("no html content:" + u))
+				lastErr = errors.New("no html content:" + u)
+				page.Close()
+			}
+		}
+	})()
+
 	err = page.Navigate(u)
 	if err != nil {
 		return nil, err
 	}
 
 	err = b.WaitPage(page, po)
-	return page, err
+	if err != nil {
+		if lastErr != nil {
+			return nil, lastErr
+		}
+		return page, err
+	}
+	return page, nil
 }
 
 func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, po *PageOptions) (err error) {
