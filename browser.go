@@ -103,7 +103,7 @@ func (b *Browser) waitPageReady(u string, po *PageOptions) (*rod.Page, error) {
 				//	return true
 				//})
 				//log.Println(errors.New("no html content:" + u))
-				lastErr = errors.New("no html content:" + u)
+				lastErr = errors.New("no html content:" + u + ". The url's MIMEType is:" + e.Response.MIMEType)
 				page.Close()
 			}
 		}
