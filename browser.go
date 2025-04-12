@@ -208,7 +208,7 @@ func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, po *PageO
 				const attributes = Array.from(element.attributes);
 				attributes.forEach(attr => {
 				  // 匹配常见的样式相关属性名
-				  if (/^(style|class|width|height|align|valign|bgcolor|border|color|font|margin|padding|data\-|aria\-|id|name|run|role|on|target|cell|page|title)/i.test(attr.name)) {
+				  if (/^(style|class|width|height|align|valign|bgcolor|border|color|font|margin|padding|data\-|aria\-|id|name|run|role|on|target|cell|page|title|rel|src)/i.test(attr.name)) {
 					element.removeAttribute(attr.name);
 				  }
 				});
