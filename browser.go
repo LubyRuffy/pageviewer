@@ -59,10 +59,12 @@ func (b *Browser) WaitPage(page *rod.Page, po *PageOptions) error {
 	}, nil)()
 
 	// 把差异调整为0.2，放大，不然会一直等待
-	err = page.WaitDOMStable(min(po.waitTimeout-time.Since(s), time.Second*2), 0.2)
-	if err != nil {
-		if !errors.Is(err, context.DeadlineExceeded) {
-			return err
+	if po.waitTimeout-time.Since(s) > 0 {
+		err = page.WaitDOMStable(min(po.waitTimeout-time.Since(s), time.Second*2), 0.2)
+		if err != nil {
+			if !errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
 		}
 	}
 
