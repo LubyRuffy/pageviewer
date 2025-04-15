@@ -121,6 +121,14 @@ func TestBrowser_HTML(t *testing.T) {
 	assert.Error(t, err)
 
 }
+func TestBrowser_HTML_longtime(t *testing.T) {
+	browser, err := NewBrowser(WithDebug(true))
+	assert.NoError(t, err)
+	html, err := browser.HTML("https://www.genomics.cn/", NewVisitOptions(WithWaitTimeout(time.Second*5)).PageOptions)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, html)
+
+}
 
 func TestBrowser_Links(t *testing.T) {
 
