@@ -39,14 +39,14 @@ func (b *Browser) Close() error {
 
 func (b *Browser) WaitPage(page *rod.Page, po *PageOptions) error {
 	s := time.Now()
-	err := page.Timeout(po.waitTimeout).WaitLoad()
+	err := page.Timeout(min(po.waitTimeout, time.Second*15)).WaitLoad()
 	if err != nil {
 		if !errors.Is(err, context.DeadlineExceeded) {
 			return err
 		}
 	}
 
-	err = page.WaitIdle(po.waitTimeout - time.Since(s))
+	err = page.WaitIdle(min(po.waitTimeout-time.Since(s), time.Second*5))
 	if err != nil {
 		if !errors.Is(err, context.DeadlineExceeded) {
 			return err
