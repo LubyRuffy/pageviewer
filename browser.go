@@ -329,7 +329,15 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 
 	if bo.Debug {
 		l = l.Headless(false).Devtools(true)
+	} else {
+		if bo.NoHeadless {
+			l = l.Headless(false)
+		}
+		if bo.DevTools {
+			l = l.Devtools(true)
+		}
 	}
+
 	if len(bo.Proxy) > 0 {
 		l = l.Proxy(bo.Proxy)
 	}

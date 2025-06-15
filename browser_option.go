@@ -2,6 +2,8 @@ package pageviewer
 
 type browserOptions struct {
 	Debug            bool
+	NoHeadless       bool
+	DevTools         bool
 	Proxy            string
 	IgnoreCertErrors bool
 	ChromePath       string // 设定后可以复用浏览器cookie
@@ -13,6 +15,16 @@ type BrowserOption func(*browserOptions)
 func WithDebug(debug bool) BrowserOption {
 	return func(o *browserOptions) {
 		o.Debug = debug
+	}
+}
+func WithNoHeadless(v bool) BrowserOption {
+	return func(o *browserOptions) {
+		o.NoHeadless = v
+	}
+}
+func WithDevTools(v bool) BrowserOption {
+	return func(o *browserOptions) {
+		o.DevTools = v
 	}
 }
 func WithProxy(proxy string) BrowserOption {
