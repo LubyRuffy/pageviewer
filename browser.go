@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -16,6 +17,7 @@ import (
 
 var (
 	defaultBrowser *Browser
+	once           sync.Once
 )
 
 type PageOptions struct {
@@ -30,6 +32,7 @@ type Browser struct {
 
 func (b *Browser) GetPage() (*rod.Page, error) {
 	// 默认支持浏览器识别绕过
+	// return b.Browser.Page(proto.TargetCreateTarget{})
 	return stealth.Page(b.Browser)
 }
 
@@ -132,13 +135,13 @@ func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, po *PageO
 			if val != nil {
 				debug.PrintStack()
 			}
-			switch val.(type) {
+			switch val := val.(type) {
 			case string:
-				err = errors.New(val.(string))
+				err = errors.New(val)
 			case error:
-				err = val.(error)
+				err = val
 			default:
-				err = errors.New(fmt.Sprintf("%v", val.(string)))
+				err = fmt.Errorf("%v", val)
 			}
 
 		}
@@ -372,13 +375,15 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 
 // DefaultBrowser 默认浏览器
 func DefaultBrowser() *Browser {
-	if defaultBrowser == nil {
-		var err error
-		defaultBrowser, err = NewBrowser()
-		if err != nil {
-			// 这里错误就直接奔溃退出
-			panic(err)
+	once.Do(func() {
+		if defaultBrowser == nil {
+			var err error
+			defaultBrowser, err = NewBrowser()
+			if err != nil {
+				// 这里错误就直接奔溃退出
+				panic(err)
+			}
 		}
-	}
+	})
 	return defaultBrowser
 }
