@@ -1,13 +1,15 @@
 package pageviewer
 
 type browserOptions struct {
-	Debug            bool
-	NoHeadless       bool
-	DevTools         bool
-	Proxy            string
-	IgnoreCertErrors bool
-	ChromePath       string // 设定后可以复用浏览器cookie
-	UserModeBrowser  bool   // 是否使用用户浏览器
+	Debug               bool
+	NoHeadless          bool
+	DevTools            bool
+	Proxy               string
+	IgnoreCertErrors    bool
+	ChromePath          string // 设定后可以复用浏览器cookie
+	UserModeBrowser     bool   // 是否使用用户浏览器
+	RemoteDebuggingPort int    // 远程调试端口
+	UserDataDir         string // 用户目录
 }
 
 type BrowserOption func(*browserOptions)
@@ -46,5 +48,17 @@ func WithChromePath(chromePath string) BrowserOption {
 func WithUserModeBrowser(userModeBrowser bool) BrowserOption {
 	return func(o *browserOptions) {
 		o.UserModeBrowser = userModeBrowser
+	}
+}
+
+func WithRemoteDebuggingPort(remoteDebuggingPort int) BrowserOption {
+	return func(o *browserOptions) {
+		o.RemoteDebuggingPort = remoteDebuggingPort
+	}
+}
+
+func WithUserDataDir(userDataDir string) BrowserOption {
+	return func(o *browserOptions) {
+		o.UserDataDir = userDataDir
 	}
 }

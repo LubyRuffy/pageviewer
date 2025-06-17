@@ -107,13 +107,16 @@ func TestVisit(t *testing.T) {
 
 func TestVisitWithOptions(t *testing.T) {
 	b, err := NewBrowser(WithDebug(true),
-		WithChromePath("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+		WithChromePath("/Applications/Chromium.app/Contents/MacOS/Chromium"),
+		//WithChromePath("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
 		WithUserModeBrowser(true),
 		WithIgnoreCertErrors(true),
+		WithRemoteDebuggingPort(11191),
+		WithUserDataDir("/tmp/pageviewer_data"),
 	)
 	assert.NoError(t, err)
 
-	err = Visit("https://fofa.info/", func(page *rod.Page) error {
+	err = Visit("https://aistudio.google.com/prompts/new_chat", func(page *rod.Page) error {
 		t.Log(page.MustHTML())
 		return nil
 	}, WithBrowser(b), WithWaitTimeout(time.Second*20))

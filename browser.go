@@ -344,8 +344,13 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 	if len(bo.ChromePath) > 0 {
 		l = l.Bin(bo.ChromePath)
 	}
+	if bo.RemoteDebuggingPort > 0 {
+		l = l.RemoteDebuggingPort(bo.RemoteDebuggingPort)
+	}
+	if len(bo.UserDataDir) > 0 {
+		l = l.UserDataDir(bo.UserDataDir)
+	}
 	l = l.NoSandbox(true)
-
 	browser = browser.ControlURL(l.MustLaunch())
 	if bo.Debug {
 		browser = browser.Trace(true)
