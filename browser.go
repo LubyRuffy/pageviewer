@@ -99,7 +99,7 @@ func (b *Browser) waitPageReady(u string, po *PageOptions) (*rod.Page, error) {
 	//var mimeType sync.Map
 	go page.EachEvent(func(e *proto.NetworkResponseReceived) {
 		//mimeType.LoadOrStore(e.Response.MIMEType, struct{}{})
-		if strings.Contains(e.Response.MIMEType, "text/") {
+		if strings.Contains(e.Response.MIMEType, "text/") || strings.Contains(e.Response.MIMEType, "application/json") {
 			isHtml = true
 		} else {
 			if !isHtml {
@@ -330,6 +330,11 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 		l = launcher.New()
 	}
 
+	l = l.Leakless(false).
+		Delete("enable-automation").
+		Delete("disable-blink-features").
+		Delete("disable-blink-features=AutomationControlled")
+
 	if bo.Debug {
 		l = l.Headless(false).Devtools(true)
 	} else {
@@ -357,6 +362,11 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 	browser = browser.ControlURL(l.MustLaunch())
 	if bo.Debug {
 		browser = browser.Trace(true)
+	}
+
+	// 使用用户的浏览器说明不需要模拟设备
+	if bo.UserModeBrowser {
+		browser = browser.NoDefaultDevice()
 	}
 
 	if err := browser.Connect(); err != nil {
