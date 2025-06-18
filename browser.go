@@ -27,12 +27,16 @@ type PageOptions struct {
 }
 
 type Browser struct {
+	UseUserMode bool
 	*rod.Browser
 }
 
 func (b *Browser) GetPage() (*rod.Page, error) {
-	// 默认支持浏览器识别绕过
-	// return b.Browser.Page(proto.TargetCreateTarget{})
+	// 使用用户的浏览器说明不需要模拟设备
+	if b.UseUserMode {
+		return b.Browser.Page(proto.TargetCreateTarget{})
+	}
+	// 支持浏览器识别绕过
 	return stealth.Page(b.Browser)
 }
 
@@ -380,7 +384,10 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 		}
 	}
 
-	return &Browser{Browser: browser}, nil
+	return &Browser{
+		Browser:     browser,
+		UseUserMode: bo.UserModeBrowser,
+	}, nil
 }
 
 // DefaultBrowser 默认浏览器
