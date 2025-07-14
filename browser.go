@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/LubyRuffy/pageviewer/js"
 	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
 
+	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
@@ -133,38 +135,8 @@ func (b *Browser) waitPageReady(u string, po *PageOptions) (*rod.Page, error) {
 	return page, nil
 }
 
-func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, po *PageOptions) (err error) {
-	defer func() {
-		if val := recover(); val != nil {
-			if val != nil {
-				debug.PrintStack()
-			}
-			switch val := val.(type) {
-			case string:
-				err = errors.New(val)
-			case error:
-				err = val
-			default:
-				err = fmt.Errorf("%v", val)
-			}
-
-		}
-	}()
-
-	if po == nil {
-		po = NewVisitOptions().PageOptions
-	}
-
-	page, e := b.waitPageReady(u, po)
-	if e != nil {
-		err = e
-		return
-	}
-	defer page.Close()
-
-	if po.removeInvisibleDiv {
-		// 执行 JavaScript 检测并删除不可见的 div
-		_, err = page.Eval(`
+func removeInvisibleElements(page *rod.Page) error {
+	_, err := page.Eval(`
 		() => {
 			// 删除当前 DOM 中的所有注释
 			function removeComments() {
@@ -231,6 +203,40 @@ func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, po *PageO
 			return deleteLength;
 		}
 	`)
+	return err
+}
+
+func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, po *PageOptions) (err error) {
+	defer func() {
+		if val := recover(); val != nil {
+			if val != nil {
+				debug.PrintStack()
+			}
+			switch val := val.(type) {
+			case string:
+				err = errors.New(val)
+			case error:
+				err = val
+			default:
+				err = fmt.Errorf("%v", val)
+			}
+		}
+	}()
+
+	if po == nil {
+		po = NewVisitOptions().PageOptions
+	}
+
+	page, e := b.waitPageReady(u, po)
+	if e != nil {
+		err = e
+		return
+	}
+	defer page.Close()
+
+	if po.removeInvisibleDiv {
+		// 执行 JavaScript 检测并删除不可见的 div
+		err = removeInvisibleElements(page)
 		if err != nil {
 			return err
 		}
@@ -239,8 +245,67 @@ func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, po *PageO
 	return onPageLoad(page)
 }
 
+// Run 执行页面操作
+// onPageLoad 页面加载完毕后执行的函数
 func (b *Browser) Run(url string, onPage func(page *rod.Page) error, po *PageOptions) error {
 	return b.run(url, onPage, po)
+}
+
+type ReadbilityArticle struct {
+	Title         string `json:"title"`
+	Byline        string `json:"byline"`
+	Dir           string `json:"dir"`
+	Lang          string `json:"lang"`
+	Content       string `json:"content"`
+	TextContent   string `json:"textContent"`
+	Length        int    `json:"length"`
+	Excerpt       string `json:"excerpt"`
+	SiteName      string `json:"siteName"`
+	PublishedTime string `json:"publishedTime"`
+}
+
+type ReadabilityArticleWithMarkdown struct {
+	ReadbilityArticle
+	Markdown string `json:"markdown"`
+}
+
+// ReadabilityArticle 获取渲染后页面的主体
+func (b *Browser) ReadabilityArticle(url string, po *PageOptions) (ReadabilityArticleWithMarkdown, error) {
+	var articleMarkdown ReadabilityArticleWithMarkdown
+	err := b.run(url, func(page *rod.Page) error {
+		jsContent := "() => {\r\n" + strings.Join([]string{
+			js.Readability,
+			js.Shadowdom,
+			//js.Turndown,
+			`
+            const documentClone = deepCloneDocumentWithShadowDOM(
+                document,
+                {
+                  // excludeClasses: [translationTargetClass, translationTargetDividerClass, translationTargetInnerClass],
+                  excludeTags: ['aisidebar-container', 'script', 'style', 'link', 'meta', 'svg', 'canvas', 'iframe', 'object', 'embed'],
+                },
+            )
+            const article = new Readability(documentClone, {charThreshold: MIN_CONTENT_LENGTH}).parse();
+			
+			return article;
+		`}, "\r\n//===\r\n") + "\r\n}"
+		r, err := page.Eval(jsContent)
+		if err != nil {
+			return err
+		}
+
+		if err = r.Value.Unmarshal(&articleMarkdown); err != nil {
+			return err
+		}
+
+		articleMarkdown.Markdown, err = htmltomarkdown.ConvertString(articleMarkdown.Content)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}, po)
+	return articleMarkdown, err
 }
 
 // HTML 获取渲染后的页面

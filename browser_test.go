@@ -159,3 +159,30 @@ func TestBrowser_Links(t *testing.T) {
 	assert.NotContains(t, str, "https://example5.com")
 
 }
+
+func TestBrowser_ReadabilityArticle(t *testing.T) {
+	//	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	//		w.WriteHeader(http.StatusOK)
+	//		w.Write([]byte(`
+	//	   <html>
+	//	       <body>
+	//<pre><code>git clone https://github.com/swisskyrepo/PayloadsAllTheThings.git
+	//cd PayloadsAllTheThings
+	//</code></pre>
+	//	       </body>
+	//	   </html>
+	//	`))
+	//	}))
+	//	defer s.Close()
+	//	url := s.URL
+	url := `https://www.freebuf.com/articles/web/439189.html`
+
+	browser, err := NewBrowser(WithDebug(true))
+	assert.NoError(t, err)
+	defer browser.Close()
+
+	text, err := browser.ReadabilityArticle(url, NewVisitOptions().PageOptions)
+	assert.NoError(t, err)
+	assert.Contains(t, text.TextContent, "PayloadsAllTheThings")
+	assert.Contains(t, text.Markdown, "```")
+}
