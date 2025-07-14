@@ -11,6 +11,7 @@ import (
 	"time"
 
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
+	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
@@ -321,7 +322,8 @@ func (b *Browser) ReadabilityArticle(url string) (ReadabilityArticleWithMarkdown
 		}
 
 		// 生成markdown
-		articleMarkdown.Markdown, err = htmltomarkdown.ConvertString(articleMarkdown.Content)
+		articleMarkdown.Markdown, err = htmltomarkdown.ConvertString(articleMarkdown.Content,
+			converter.WithDomain(url))
 		if err != nil {
 			return err
 		}
