@@ -267,12 +267,35 @@ type ReadbilityArticle struct {
 type ReadabilityArticleWithMarkdown struct {
 	ReadbilityArticle
 	Markdown string `json:"markdown"`
+	HTML     string `json:"html"`
+	RawHTML  string `json:"raw_html"`
 }
 
 // ReadabilityArticle 获取渲染后页面的主体
-func (b *Browser) ReadabilityArticle(url string, po *PageOptions) (ReadabilityArticleWithMarkdown, error) {
+func (b *Browser) ReadabilityArticle(url string) (ReadabilityArticleWithMarkdown, error) {
 	var articleMarkdown ReadabilityArticleWithMarkdown
+
+	po := NewVisitOptions(WithBeforeRequest(func(page *rod.Page) error {
+		go page.EachEvent(func(e *proto.NetworkLoadingFinished) {
+			reply, err := (proto.NetworkGetResponseBody{RequestID: e.RequestID}).Call(page)
+			if err == nil && articleMarkdown.RawHTML == "" {
+				// 获取原始HTML
+				articleMarkdown.RawHTML = reply.Body
+			}
+		})()
+		return nil
+	})).PageOptions
+
 	err := b.run(url, func(page *rod.Page) error {
+		var err error
+
+		// 获取渲染后的HTML
+		articleMarkdown.HTML, err = page.HTML()
+		if err != nil {
+			return err
+		}
+
+		// 执行 readability
 		jsContent := "() => {\r\n" + strings.Join([]string{
 			js.Readability,
 			js.Shadowdom,
@@ -293,11 +316,11 @@ func (b *Browser) ReadabilityArticle(url string, po *PageOptions) (ReadabilityAr
 		if err != nil {
 			return err
 		}
-
 		if err = r.Value.Unmarshal(&articleMarkdown); err != nil {
 			return err
 		}
 
+		// 生成markdown
 		articleMarkdown.Markdown, err = htmltomarkdown.ConvertString(articleMarkdown.Content)
 		if err != nil {
 			return err
