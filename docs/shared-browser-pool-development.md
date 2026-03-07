@@ -18,7 +18,7 @@
 
 - `Client`
   - 生命周期入口
-  - 负责 `Start`、`Close`、`Stats`
+  - 负责 `Start`、`Close`、`Stats`、`DebugTrace`
   - 管理共享 browser、worker 池、默认借用超时
 - `worker`
   - 持有一个长期复用的 `rod.Page`
@@ -56,7 +56,8 @@ client, err := pageviewer.Start(ctx, pageviewer.Config{
 2. 创建共享 `Browser`
 3. 创建 `workerPool`
 4. 按 `Warmup` 预热真实 `rod.Page` worker
-5. 任一步失败时统一清理 browser 和已创建 worker
+5. 后台补建剩余 worker，直到 `TotalWorkers == PoolSize`
+6. 任一步失败时统一清理 browser 和已创建 worker
 
 ### 关闭
 
@@ -69,6 +70,8 @@ err := client.Close()
 关闭语义：
 
 - 幂等
+- 不再接受新请求
+- 等待在途请求、异步补建与修复任务结束
 - 关闭所有已登记 worker
 - 关闭 browser
 - 重置 `Stats`
@@ -81,6 +84,7 @@ err := client.Close()
 func Start(ctx context.Context, cfg Config) (*Client, error)
 func (c *Client) Close() error
 func (c *Client) Stats() Stats
+func (c *Client) DebugTrace(id string) (Trace, bool)
 
 func (c *Client) Visit(ctx context.Context, url string, fn func(page *rod.Page) error, opts ...RequestOption) error
 func (c *Client) HTML(ctx context.Context, url string, opts ...RequestOption) (string, error)
@@ -96,6 +100,7 @@ func Visit(u string, onPageLoad func(page *rod.Page) error, opts ...VisitOption)
 ```
 
 但兼容层内部已经不再直接跑旧的隐式页面逻辑，而是通过临时 `Client` 执行。
+这个临时 `Client` 不会为了 one-shot `Visit` 再额外补建 worker，避免请求结束后进入无意义的 repair 路径。
 
 ## 配置与请求选项
 
@@ -120,8 +125,10 @@ func Visit(u string, onPageLoad func(page *rod.Page) error, opts ...VisitOption)
 
 - `PoolSize <= 0` 时回落到默认值 `1`
 - `AcquireTimeout <= 0` 时回落到默认值 `20s`
-- `Warmup < 0` 时归零
+- `Warmup <= 0` 时回落到默认值 `1`
 - `Warmup > PoolSize` 时自动截断到 `PoolSize`
+- `Warmup < PoolSize` 时，剩余 worker 由后台补到 `PoolSize`
+- 后台 worker 补建/修复使用独立 provisioning timeout，不直接复用 `AcquireTimeout`
 
 ### `RequestOptions`
 
@@ -138,6 +145,46 @@ func Visit(u string, onPageLoad func(page *rod.Page) error, opts ...VisitOption)
 - `ctx` deadline
 - `RequestOptions.AcquireTimeout`
 - `Config.AcquireTimeout`
+
+## Stats 与 Trace
+
+当前 `Stats` 暴露的最小观测字段：
+
+- `TotalWorkers`
+- `IdleWorkers`
+- `RecentTraces`
+- `LastError`
+
+调用方如果已经有自己的交互 id，推荐直接透传：
+
+```go
+html, err := client.HTML(ctx, targetURL, pageviewer.WithTraceID(interactionID))
+if err != nil {
+    trace, ok := client.DebugTrace(interactionID)
+    if ok {
+        log.Printf("trace=%+v", trace)
+    }
+}
+```
+
+`Trace` 目前会记录：
+
+- `TraceID`
+- `URL`
+- `Mode` (`dom` / `text`)
+- `WorkerID`
+- `AcquireWait`
+- `StatusCode`
+- `ContentType`
+- `FinalURL`
+- `ErrorMessage`
+- `BrokenWorker`
+
+如果同一个 `TraceID` 被重复使用：
+
+- 顶层字段表示“最新开始的那次请求”的摘要
+- `AttemptCount` 表示同 id 已记录的请求次数
+- `Attempts` 按请求开始顺序保留链路，便于排查失败后重试或并发重入
 
 ## DOM 模式
 
@@ -213,7 +260,7 @@ type TextResponse struct {
 
 - 不再归还池
 - 关闭旧 page
-- 后台同步补建新 worker
+- 后台异步补建新 worker
 
 ## 测试策略
 
@@ -253,3 +300,5 @@ newDefaultVisitOptions().PageOptions
 4. 如果新增测试会启动真实 browser，必须显式 `Close()`，并在必要时重置全局 `defaultBrowser`。
 
 5. 生产推荐只使用 `Client`，包级 `Visit` 仅作为兼容入口保留。
+
+6. 如果上层已经有 interaction id，请统一通过 `WithTraceID(id)` 透传，问题排查时再用 `client.DebugTrace(id)` 取回最近链路。

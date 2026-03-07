@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-rod/rod"
 	"github.com/stretchr/testify/assert"
@@ -71,4 +72,94 @@ func TestClientVisitRepairsClosedWorker(t *testing.T) {
 	html, err := client.HTML(context.Background(), s.URL)
 	require.NoError(t, err)
 	assert.Contains(t, html, `id="app"`)
+}
+
+func TestCloseWaitsForInFlightVisit(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><body><div id="app">ok</div></body></html>`))
+	}))
+	defer s.Close()
+
+	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
+	require.NoError(t, err)
+
+	started := make(chan struct{})
+	releaseVisit := make(chan struct{})
+	visitDone := make(chan error, 1)
+	closeDone := make(chan error, 1)
+
+	go func() {
+		visitDone <- client.Visit(context.Background(), s.URL, func(page *rod.Page) error {
+			close(started)
+			<-releaseVisit
+			return nil
+		})
+	}()
+
+	<-started
+
+	go func() {
+		closeDone <- client.Close()
+	}()
+
+	select {
+	case err := <-closeDone:
+		t.Fatalf("close returned before in-flight request completed: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(releaseVisit)
+
+	require.NoError(t, <-visitDone)
+	require.NoError(t, <-closeDone)
+}
+
+func TestCloseUnblocksWaitingAcquireWithErrClosed(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><body><div id="app">ok</div></body></html>`))
+	}))
+	defer s.Close()
+
+	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
+	require.NoError(t, err)
+
+	started := make(chan struct{})
+	releaseVisit := make(chan struct{})
+	firstDone := make(chan error, 1)
+	waitingDone := make(chan error, 1)
+	closeDone := make(chan error, 1)
+
+	go func() {
+		firstDone <- client.Visit(context.Background(), s.URL, func(page *rod.Page) error {
+			close(started)
+			<-releaseVisit
+			return nil
+		})
+	}()
+
+	<-started
+
+	go func() {
+		_, err := client.HTML(context.Background(), s.URL)
+		waitingDone <- err
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	go func() {
+		closeDone <- client.Close()
+	}()
+
+	require.ErrorIs(t, <-waitingDone, ErrClosed)
+
+	select {
+	case err := <-closeDone:
+		t.Fatalf("close returned before active request completed: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(releaseVisit)
+
+	require.NoError(t, <-firstDone)
+	require.NoError(t, <-closeDone)
 }

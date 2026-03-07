@@ -1,14 +1,17 @@
 package pageviewer
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/go-rod/rod"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func resetDefaultBrowserForTest(t *testing.T) {
@@ -144,4 +147,35 @@ func TestVisitWithOptions(t *testing.T) {
 	}, WithBrowser(b), WithWaitTimeout(time.Second*20))
 	assert.NoError(t, err)
 	assert.Contains(t, html, "custom browser")
+}
+
+func TestVisitDoesNotRepairSuccessfulCompatibilityCall(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><body><div id="app">ok</div></body></html>`))
+	}))
+	defer s.Close()
+
+	browser, err := NewBrowser()
+	require.NoError(t, err)
+	defer browser.Close()
+
+	oldWorkerFactory := newClientWorker
+	var created int32
+	newClientWorker = func(ctx context.Context, browser *Browser, id int) (*worker, error) {
+		if atomic.AddInt32(&created, 1) == 1 {
+			return oldWorkerFactory(ctx, browser, id)
+		}
+
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	t.Cleanup(func() {
+		newClientWorker = oldWorkerFactory
+	})
+
+	err = Visit(s.URL, func(page *rod.Page) error {
+		return nil
+	}, WithBrowser(browser), WithAcquireTimeout(20*time.Millisecond))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&created))
 }

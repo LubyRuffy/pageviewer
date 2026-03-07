@@ -36,6 +36,17 @@ func replaceNewBrowserWithOptions(t *testing.T, factory func(...BrowserOption) (
 	})
 }
 
+func replaceWorkerRepairRetryDelay(t *testing.T, d time.Duration) {
+	t.Helper()
+
+	oldDelay := workerRepairRetryDelay
+	workerRepairRetryDelay = d
+
+	t.Cleanup(func() {
+		workerRepairRetryDelay = oldDelay
+	})
+}
+
 func TestStartCreatesClientWithWarmWorkers(t *testing.T) {
 	client, err := Start(context.Background(), Config{
 		PoolSize:       1,
@@ -53,6 +64,118 @@ func TestStartCreatesClientWithWarmWorkers(t *testing.T) {
 	require.NotNil(t, warmWorker)
 	require.NotNil(t, warmWorker.page)
 	release(workerStateReady)
+}
+
+func TestStartZeroValueConfigCreatesUsableWarmWorker(t *testing.T) {
+	var created int32
+
+	replaceClientFactories(t,
+		func(Config) (*Browser, error) {
+			return &Browser{}, nil
+		},
+		func(ctx context.Context, browser *Browser, id int) (*worker, error) {
+			atomic.AddInt32(&created, 1)
+			return &worker{id: id, closeFn: func() error { return nil }}, nil
+		},
+	)
+
+	client, err := Start(context.Background(), Config{})
+	require.NoError(t, err)
+	defer client.Close()
+
+	assert.Equal(t, int32(1), atomic.LoadInt32(&created))
+	assert.Equal(t, 1, client.Stats().TotalWorkers)
+}
+
+func TestStartBackgroundFillsPoolSize(t *testing.T) {
+	var created int32
+
+	replaceClientFactories(t,
+		func(Config) (*Browser, error) {
+			return &Browser{}, nil
+		},
+		func(ctx context.Context, browser *Browser, id int) (*worker, error) {
+			atomic.AddInt32(&created, 1)
+			return &worker{id: id, closeFn: func() error { return nil }}, nil
+		},
+	)
+
+	client, err := Start(context.Background(), Config{
+		PoolSize: 3,
+		Warmup:   1,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	require.Eventually(t, func() bool {
+		stats := client.Stats()
+		return stats.TotalWorkers == 3 && stats.IdleWorkers == 3
+	}, time.Second, 10*time.Millisecond)
+
+	assert.Equal(t, int32(3), atomic.LoadInt32(&created))
+}
+
+func TestBackgroundFillDoesNotUseAcquireTimeout(t *testing.T) {
+	var created int32
+
+	replaceClientFactories(t,
+		func(Config) (*Browser, error) {
+			return &Browser{}, nil
+		},
+		func(ctx context.Context, browser *Browser, id int) (*worker, error) {
+			if atomic.AddInt32(&created, 1) == 1 {
+				return &worker{id: id, closeFn: func() error { return nil }}, nil
+			}
+
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+				return &worker{id: id, closeFn: func() error { return nil }}, nil
+			}
+		},
+	)
+
+	client, err := Start(context.Background(), Config{
+		PoolSize:       2,
+		Warmup:         1,
+		AcquireTimeout: 10 * time.Millisecond,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	require.Eventually(t, func() bool {
+		return client.Stats().TotalWorkers == 2
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestCloseCancelsBackgroundFill(t *testing.T) {
+	var created int32
+
+	replaceClientFactories(t,
+		func(Config) (*Browser, error) {
+			return &Browser{}, nil
+		},
+		func(ctx context.Context, browser *Browser, id int) (*worker, error) {
+			if atomic.AddInt32(&created, 1) == 1 {
+				return &worker{id: id, closeFn: func() error { return nil }}, nil
+			}
+
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	)
+
+	client, err := Start(context.Background(), Config{
+		PoolSize:       2,
+		Warmup:         1,
+		AcquireTimeout: time.Second,
+	})
+	require.NoError(t, err)
+
+	start := time.Now()
+	require.NoError(t, client.Close())
+	assert.Less(t, time.Since(start), 300*time.Millisecond)
 }
 
 func TestStartWithCanceledContextSkipsBrowserStartup(t *testing.T) {
@@ -217,6 +340,46 @@ func TestCloseIsIdempotent(t *testing.T) {
 
 	_, err = browser.GetPage()
 	require.Error(t, err)
+}
+
+func TestScheduleRepairReturnsImmediately(t *testing.T) {
+	replacementReady := make(chan struct{})
+
+	replaceClientFactories(t,
+		func(Config) (*Browser, error) {
+			return &Browser{}, nil
+		},
+		func(ctx context.Context, browser *Browser, id int) (*worker, error) {
+			<-replacementReady
+			return &worker{id: id, closeFn: func() error { return nil }}, nil
+		},
+	)
+	replaceWorkerRepairRetryDelay(t, time.Millisecond)
+
+	target := &worker{id: 1, closeFn: func() error { return nil }}
+	client := &Client{
+		browser:        &Browser{},
+		pool:           newWorkerPool(1),
+		acquireTimeout: time.Second,
+		closeCh:        make(chan struct{}),
+		workers:        []*worker{target},
+	}
+	client.totalWorkers.Store(1)
+
+	start := time.Now()
+	client.scheduleRepair(target)
+	assert.Less(t, time.Since(start), 50*time.Millisecond)
+
+	close(replacementReady)
+
+	require.Eventually(t, func() bool {
+		w, release, err := client.pool.acquire(context.Background(), 10*time.Millisecond)
+		if err != nil {
+			return false
+		}
+		release(workerStateBroken)
+		return w != nil && w.id == 1
+	}, time.Second, 10*time.Millisecond)
 }
 
 func TestNewBrowserFromConfigPassesThroughOptions(t *testing.T) {

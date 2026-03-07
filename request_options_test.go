@@ -20,6 +20,11 @@ func TestRequestOptionsOverrideAcquireTimeout(t *testing.T) {
 	assert.Equal(t, 3*time.Second, opts.AcquireTimeout)
 }
 
+func TestRequestOptionsKeepTraceID(t *testing.T) {
+	opts := NewRequestOptions(WithTraceID("trace-123"))
+	assert.Equal(t, "trace-123", opts.TraceID)
+}
+
 func TestRequestOptionsKeepBeforeRequest(t *testing.T) {
 	called := false
 	opts := NewRequestOptions(WithBeforeRequest(func(page *rod.Page) error {
@@ -42,6 +47,7 @@ func TestNewVisitOptionsKeepsLegacyWrappers(t *testing.T) {
 		WithRemoveInvisibleDiv(true),
 		WithBeforeRequest(beforeRequest),
 		WithAcquireTimeout(3*time.Second),
+		WithTraceID("trace-123"),
 	)
 
 	require.NotNil(t, opts)
@@ -50,6 +56,7 @@ func TestNewVisitOptionsKeepsLegacyWrappers(t *testing.T) {
 	assert.Equal(t, 2*time.Second, opts.PageOptions.waitTimeout)
 	assert.True(t, opts.PageOptions.removeInvisibleDiv)
 	assert.NotNil(t, opts.PageOptions.beforeRequest)
+	assert.Equal(t, "trace-123", opts.traceID)
 }
 
 func TestCustomVisitOptionStillWorks(t *testing.T) {

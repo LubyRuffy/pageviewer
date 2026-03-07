@@ -56,6 +56,13 @@ func WithBrowser(browser *Browser) VisitOption {
 	}
 }
 
+// WithTraceID 设置排障链路 TraceID
+func WithTraceID(traceID string) VisitOption {
+	return func(vo *VisitOptions) {
+		vo.traceID = traceID
+	}
+}
+
 // WithBeforeRequest 在请求之前的回调，做一些预处理操作
 func WithBeforeRequest(f func(page *rod.Page) error) VisitOption {
 	return func(vo *VisitOptions) {
@@ -79,7 +86,7 @@ func Visit(u string, onPageLoad func(page *rod.Page) error, opts ...VisitOption)
 	}
 	defer client.Close()
 
-	return client.visitWithOptions(context.Background(), u, vo.toRequestOptions(), false, func(page *rod.Page, _ *proto.NetworkResponseReceived) error {
+	return client.visitWithOptions(context.Background(), u, vo.toRequestOptions(), true, func(page *rod.Page, _ *proto.NetworkResponseReceived) error {
 		return onPageLoad(page)
 	})
 }

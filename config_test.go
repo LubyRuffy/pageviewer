@@ -10,6 +10,7 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	assert.Equal(t, 1, cfg.PoolSize)
+	assert.Equal(t, 1, cfg.Warmup)
 	assert.Equal(t, 20*time.Second, cfg.AcquireTimeout)
 }
 

@@ -24,6 +24,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		PoolSize:       1,
+		Warmup:         1,
 		AcquireTimeout: 20 * time.Second,
 	}
 }
@@ -37,8 +38,8 @@ func (cfg Config) withDefaults() Config {
 	if cfg.AcquireTimeout <= 0 {
 		cfg.AcquireTimeout = defaults.AcquireTimeout
 	}
-	if cfg.Warmup < 0 {
-		cfg.Warmup = 0
+	if cfg.Warmup <= 0 {
+		cfg.Warmup = min(cfg.PoolSize, defaults.Warmup)
 	}
 	if cfg.Warmup > cfg.PoolSize {
 		cfg.Warmup = cfg.PoolSize

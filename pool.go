@@ -55,8 +55,17 @@ func (p *workerPool) fill(w *worker) error {
 }
 
 func (p *workerPool) acquire(ctx context.Context, timeout time.Duration) (*worker, func(workerState), error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	if timeout <= 0 {
+		select {
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		default:
+			return nil, nil, ErrAcquireTimeout
+		}
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 
 	select {
 	case w := <-p.ch:
@@ -72,6 +81,8 @@ func (p *workerPool) acquire(ctx context.Context, timeout time.Duration) (*worke
 			})
 		}, nil
 	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	case <-timer.C:
 		return nil, nil, ErrAcquireTimeout
 	}
 }

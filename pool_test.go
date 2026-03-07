@@ -37,6 +37,16 @@ func TestPoolAcquireTimeout(t *testing.T) {
 	assert.ErrorIs(t, err, ErrAcquireTimeout)
 }
 
+func TestPoolAcquireReturnsContextCanceled(t *testing.T) {
+	p := newWorkerPool(1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, err := p.acquire(ctx, 50*time.Millisecond)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
 func TestPoolFillReturnsErrorWhenFull(t *testing.T) {
 	p := newWorkerPool(1)
 	require.NoError(t, p.fill(&worker{id: 1}))

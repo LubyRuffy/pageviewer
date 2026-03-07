@@ -2,41 +2,62 @@ package pageviewer
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-rod/rod/lib/proto"
 )
 
-func (c *Client) RawText(ctx context.Context, url string, opts ...RequestOption) (TextResponse, error) {
-	if c == nil {
-		return TextResponse{}, ErrBrowserUnavailable
+func (c *Client) RawText(ctx context.Context, url string, opts ...RequestOption) (resp TextResponse, err error) {
+	ro := NewRequestOptions(opts...)
+	trace := c.beginTrace(ro.TraceID, traceModeText, url)
+	defer func() {
+		trace.finish(err)
+	}()
+
+	if err = c.beginTrackedOperation(); err != nil {
+		return TextResponse{}, err
 	}
-	if c.closed.Load() {
-		return TextResponse{}, ErrClosed
-	}
-	if err := ctx.Err(); err != nil {
+	defer c.inflight.Done()
+
+	if err = ctx.Err(); err != nil {
 		return TextResponse{}, err
 	}
 	if c.browser == nil || c.pool == nil {
 		return TextResponse{}, ErrBrowserUnavailable
 	}
 
-	ro := NewRequestOptions(opts...)
-	worker, release, err := c.pool.acquire(ctx, c.acquireWorkerTimeout(ctx, ro))
+	acquireCtx, stopAcquire := c.acquireContext(ctx)
+	defer stopAcquire()
+
+	acquireStart := time.Now()
+	worker, release, err := c.pool.acquire(acquireCtx, c.acquireWorkerTimeout(ctx, ro))
+	trace.setAcquireWait(time.Since(acquireStart))
 	if err != nil {
+		if errors.Is(err, context.Canceled) && c.closed.Load() && ctx.Err() == nil {
+			err = ErrClosed
+		}
 		return TextResponse{}, err
 	}
+	trace.setWorkerID(worker.id)
 
 	state := workerStateReady
 	defer func() {
 		release(state)
 		if state == workerStateBroken {
-			c.repairWorker(worker)
+			trace.markBrokenWorker()
+			if c.repairWorkers {
+				c.scheduleRepair(worker)
+				return
+			}
+			c.retireWorker(worker)
 		}
 	}()
 
 	result, err := c.browser.navigateTextPage(worker.page, url, ro.pageOptions())
+	trace.setResponse(result.response)
 	if err != nil {
 		state = workerStateBroken
 		return TextResponse{}, err

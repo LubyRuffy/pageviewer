@@ -199,11 +199,11 @@ func (b *Browser) navigatePage(page *rod.Page, u string, po *PageOptions) (*prot
 		return nil, ErrNavigationFailed
 	}
 	if !isTextContentType(response.Response.MIMEType) {
-		return nil, newUnsupportedDOMContentError(u, response.Response.MIMEType)
+		return response, newUnsupportedDOMContentError(u, response.Response.MIMEType)
 	}
 
 	if err := b.WaitPage(page, po); err != nil {
-		return nil, err
+		return response, err
 	}
 
 	return response, nil
@@ -231,7 +231,7 @@ func (b *Browser) navigateTextPage(page *rod.Page, u string, po *PageOptions) (d
 		return documentResponseResult{}, ErrNavigationFailed
 	}
 	if !isTextContentType(result.response.Response.MIMEType) {
-		return documentResponseResult{}, ErrUnsupportedContentType
+		return result, ErrUnsupportedContentType
 	}
 	if err := b.WaitPage(page, po); err != nil {
 		return documentResponseResult{}, err
@@ -311,7 +311,7 @@ func removeInvisibleElements(page *rod.Page) error {
 	return err
 }
 
-func (b *Browser) runPage(page *rod.Page, u string, po *PageOptions, onPageLoad func(page *rod.Page, response *proto.NetworkResponseReceived) error) (pageBroken bool, err error) {
+func (b *Browser) runPage(page *rod.Page, u string, po *PageOptions, onPageLoad func(page *rod.Page, response *proto.NetworkResponseReceived) error) (response *proto.NetworkResponseReceived, pageBroken bool, err error) {
 	defer func() {
 		if val := recover(); val != nil {
 			if val != nil {
@@ -334,18 +334,18 @@ func (b *Browser) runPage(page *rod.Page, u string, po *PageOptions, onPageLoad 
 
 	response, e := b.navigatePage(page, u, po)
 	if e != nil {
-		return true, e
+		return response, true, e
 	}
 
 	if po.removeInvisibleDiv {
 		// 执行 JavaScript 检测并删除不可见的 div
 		err = removeInvisibleElements(page)
 		if err != nil {
-			return false, err
+			return response, false, err
 		}
 	}
 
-	return false, onPageLoad(page, response)
+	return response, false, onPageLoad(page, response)
 }
 
 func (b *Browser) runWithResponse(u string, po *PageOptions, onPageLoad func(page *rod.Page, response *proto.NetworkResponseReceived) error) (err error) {
@@ -355,7 +355,7 @@ func (b *Browser) runWithResponse(u string, po *PageOptions, onPageLoad func(pag
 	}
 	defer page.Close()
 
-	_, err = b.runPage(page, u, po, onPageLoad)
+	_, _, err = b.runPage(page, u, po, onPageLoad)
 	return err
 }
 
