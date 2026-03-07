@@ -19,8 +19,9 @@ import (
 )
 
 var (
-	defaultBrowser *Browser
-	once           sync.Once
+	defaultBrowser        *Browser
+	once                  sync.Once
+	newBrowserWithOptions = NewBrowser
 )
 
 type PageOptions struct {
@@ -32,6 +33,8 @@ type PageOptions struct {
 type Browser struct {
 	UseUserMode bool
 	*rod.Browser
+	closeFn   func() error
+	closeOnce sync.Once
 }
 
 func (b *Browser) GetPage() (*rod.Page, error) {
@@ -44,10 +47,20 @@ func (b *Browser) GetPage() (*rod.Page, error) {
 }
 
 func (b *Browser) Close() error {
-	if b == nil || b.Browser == nil {
+	if b == nil {
 		return nil
 	}
-	return b.Browser.Close()
+
+	var err error
+	b.closeOnce.Do(func() {
+		switch {
+		case b.closeFn != nil:
+			err = b.closeFn()
+		case b.Browser != nil:
+			err = b.Browser.Close()
+		}
+	})
+	return err
 }
 
 func (b *Browser) WaitPage(page *rod.Page, po *PageOptions) error {
@@ -456,7 +469,11 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 		l = l.UserDataDir(bo.UserDataDir)
 	}
 	l = l.NoSandbox(true)
-	browser = browser.ControlURL(l.MustLaunch())
+	debugURL, err := l.Launch()
+	if err != nil {
+		return nil, err
+	}
+	browser = browser.ControlURL(debugURL)
 	if bo.Debug {
 		browser = browser.Trace(true)
 	}
@@ -466,13 +483,36 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 		browser = browser.NoDefaultDevice()
 	}
 
+	ownsUserDataDir := !bo.UserModeBrowser && bo.UserDataDir == ""
+	cleanupLaunch := func() {
+		l.Kill()
+		if ownsUserDataDir {
+			l.Cleanup()
+		}
+	}
 	if err := browser.Connect(); err != nil {
+		cleanupLaunch()
 		return nil, err
+	}
+
+	closeBrowser := func() error {
+		var closeErr error
+		if browser != nil {
+			closeErr = browser.Close()
+		}
+		if closeErr != nil {
+			l.Kill()
+		}
+		if ownsUserDataDir {
+			l.Cleanup()
+		}
+		return closeErr
 	}
 
 	if bo.IgnoreCertErrors {
 		err := browser.IgnoreCertErrors(true)
 		if err != nil {
+			_ = closeBrowser()
 			return nil, err
 		}
 	}
@@ -480,11 +520,12 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 	return &Browser{
 		Browser:     browser,
 		UseUserMode: bo.UserModeBrowser,
+		closeFn:     closeBrowser,
 	}, nil
 }
 
 func newBrowserFromConfig(cfg Config) (*Browser, error) {
-	return NewBrowser(cfg.browserOptions()...)
+	return newBrowserWithOptions(cfg.browserOptions()...)
 }
 
 // DefaultBrowser 默认浏览器

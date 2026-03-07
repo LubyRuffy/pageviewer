@@ -5,12 +5,16 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/go-rod/rod"
 )
 
 var errWorkerPoolFull = errors.New("pageviewer: worker pool full")
 
 type worker struct {
-	id int
+	id      int
+	page    *rod.Page
+	closeFn func() error
 }
 
 type workerState int
@@ -26,6 +30,19 @@ type workerPool struct {
 
 func newWorkerPool(size int) *workerPool {
 	return &workerPool{ch: make(chan *worker, size)}
+}
+
+func (w *worker) close() error {
+	if w == nil {
+		return nil
+	}
+	if w.closeFn != nil {
+		return w.closeFn()
+	}
+	if w.page != nil {
+		return w.page.Close()
+	}
+	return nil
 }
 
 func (p *workerPool) fill(w *worker) error {
