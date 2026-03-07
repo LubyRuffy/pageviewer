@@ -3,6 +3,7 @@ package pageviewer
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 )
 
@@ -42,13 +43,16 @@ func (p *workerPool) acquire(ctx context.Context, timeout time.Duration) (*worke
 
 	select {
 	case w := <-p.ch:
+		var releaseOnce sync.Once
 		return w, func(state workerState) {
-			if state == workerStateReady {
-				select {
-				case p.ch <- w:
-				default:
+			releaseOnce.Do(func() {
+				if state == workerStateReady {
+					select {
+					case p.ch <- w:
+					default:
+					}
 				}
-			}
+			})
 		}, nil
 	case <-ctx.Done():
 		return nil, nil, ErrAcquireTimeout

@@ -101,3 +101,24 @@ func TestPoolReleaseDoesNotBlockWhenPoolIsFull(t *testing.T) {
 	_, _, err = p.acquire(context.Background(), 10*time.Millisecond)
 	assert.ErrorIs(t, err, ErrAcquireTimeout)
 }
+
+func TestPoolReleaseReadyDoesNotReturnSameWorkerTwice(t *testing.T) {
+	p := newWorkerPool(2)
+	w := &worker{id: 1}
+	require.NoError(t, p.fill(w))
+
+	got, release, err := p.acquire(context.Background(), 50*time.Millisecond)
+	require.NoError(t, err)
+	assert.Same(t, w, got)
+
+	release(workerStateReady)
+	release(workerStateReady)
+
+	gotAgain, releaseAgain, err := p.acquire(context.Background(), 50*time.Millisecond)
+	require.NoError(t, err)
+	assert.Same(t, w, gotAgain)
+	releaseAgain(workerStateBroken)
+
+	_, _, err = p.acquire(context.Background(), 10*time.Millisecond)
+	assert.ErrorIs(t, err, ErrAcquireTimeout)
+}
