@@ -36,3 +36,68 @@ func TestPoolAcquireTimeout(t *testing.T) {
 	_, _, err = p.acquire(context.Background(), 10*time.Millisecond)
 	assert.ErrorIs(t, err, ErrAcquireTimeout)
 }
+
+func TestPoolFillReturnsErrorWhenFull(t *testing.T) {
+	p := newWorkerPool(1)
+	require.NoError(t, p.fill(&worker{id: 1}))
+
+	done := make(chan error, 1)
+	go func() {
+		done <- p.fill(&worker{id: 2})
+	}()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, errWorkerPoolFull)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("fill blocked when pool was full")
+	}
+}
+
+func TestPoolReleaseBrokenDoesNotReturnWorker(t *testing.T) {
+	p := newWorkerPool(1)
+	w := &worker{id: 1}
+	require.NoError(t, p.fill(w))
+
+	got, release, err := p.acquire(context.Background(), 50*time.Millisecond)
+	require.NoError(t, err)
+	assert.Equal(t, w, got)
+
+	release(workerStateBroken)
+
+	_, _, err = p.acquire(context.Background(), 10*time.Millisecond)
+	assert.ErrorIs(t, err, ErrAcquireTimeout)
+}
+
+func TestPoolReleaseDoesNotBlockWhenPoolIsFull(t *testing.T) {
+	p := newWorkerPool(1)
+	w1 := &worker{id: 1}
+	w2 := &worker{id: 2}
+	require.NoError(t, p.fill(w1))
+
+	got, release, err := p.acquire(context.Background(), 50*time.Millisecond)
+	require.NoError(t, err)
+	assert.Equal(t, w1, got)
+
+	require.NoError(t, p.fill(w2))
+
+	done := make(chan struct{}, 1)
+	go func() {
+		release(workerStateReady)
+		done <- struct{}{}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("release blocked when pool was full")
+	}
+
+	gotAgain, releaseAgain, err := p.acquire(context.Background(), 50*time.Millisecond)
+	require.NoError(t, err)
+	assert.Equal(t, w2, gotAgain)
+	releaseAgain(workerStateBroken)
+
+	_, _, err = p.acquire(context.Background(), 10*time.Millisecond)
+	assert.ErrorIs(t, err, ErrAcquireTimeout)
+}

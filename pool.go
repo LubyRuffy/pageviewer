@@ -2,8 +2,11 @@ package pageviewer
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+var errWorkerPoolFull = errors.New("pageviewer: worker pool full")
 
 type worker struct {
 	id int
@@ -25,8 +28,12 @@ func newWorkerPool(size int) *workerPool {
 }
 
 func (p *workerPool) fill(w *worker) error {
-	p.ch <- w
-	return nil
+	select {
+	case p.ch <- w:
+		return nil
+	default:
+		return errWorkerPoolFull
+	}
 }
 
 func (p *workerPool) acquire(ctx context.Context, timeout time.Duration) (*worker, func(workerState), error) {
@@ -37,7 +44,10 @@ func (p *workerPool) acquire(ctx context.Context, timeout time.Duration) (*worke
 	case w := <-p.ch:
 		return w, func(state workerState) {
 			if state == workerStateReady {
-				p.ch <- w
+				select {
+				case p.ch <- w:
+				default:
+				}
 			}
 		}, nil
 	case <-ctx.Done():
