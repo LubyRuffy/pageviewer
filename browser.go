@@ -39,6 +39,7 @@ type Browser struct {
 
 type documentResponseResult struct {
 	response *proto.NetworkResponseReceived
+	body     string
 	err      error
 }
 
@@ -122,10 +123,10 @@ func (b *Browser) waitPageReady(u string, po *PageOptions) (*rod.Page, error) {
 }
 
 func newUnsupportedDOMContentError(u, mimeType string) error {
-	return errors.New("no html content:" + u + ". The url's MIMEType is:" + mimeType)
+	return fmt.Errorf("%w: no html content:%s. The url's MIMEType is:%s", ErrUnsupportedContentType, u, mimeType)
 }
 
-func waitForMainDocumentResponse(page *rod.Page) (func() (*proto.NetworkResponseReceived, error), func()) {
+func waitForMainDocumentResponse(page *rod.Page, includeBody bool) (func() (documentResponseResult, error), func()) {
 	waitPage, cancel := page.WithCancel()
 	resultCh := make(chan documentResponseResult, 1)
 	done := make(chan struct{})
@@ -133,16 +134,28 @@ func waitForMainDocumentResponse(page *rod.Page) (func() (*proto.NetworkResponse
 	go func() {
 		defer close(done)
 
+		var response *proto.NetworkResponseReceived
 		sent := false
-		wait := waitPage.EachEvent(func(e *proto.NetworkResponseReceived) bool {
-			if e.Type != proto.NetworkResourceTypeDocument {
-				return false
-			}
+		wait := waitPage.EachEvent(
+			func(e *proto.NetworkResponseReceived) {
+				if e.Type == proto.NetworkResourceTypeDocument && response == nil {
+					response = e
+				}
+			},
+			func(e *proto.NetworkLoadingFinished) bool {
+				if response == nil || e.RequestID != response.RequestID {
+					return false
+				}
 
-			resultCh <- documentResponseResult{response: e}
-			sent = true
-			return true
-		})
+				result := documentResponseResult{response: response}
+				if includeBody {
+					result.body, result.err = readResponseBody(waitPage, response)
+				}
+				resultCh <- result
+				sent = true
+				return true
+			},
+		)
 		wait()
 
 		if !sent {
@@ -154,9 +167,9 @@ func waitForMainDocumentResponse(page *rod.Page) (func() (*proto.NetworkResponse
 		}
 	}()
 
-	return func() (*proto.NetworkResponseReceived, error) {
+	return func() (documentResponseResult, error) {
 			result := <-resultCh
-			return result.response, result.err
+			return result, result.err
 		}, func() {
 			cancel()
 			<-done
@@ -170,17 +183,18 @@ func (b *Browser) navigatePage(page *rod.Page, u string, po *PageOptions) (*prot
 		}
 	}
 
-	waitDocument, stopWaiting := waitForMainDocumentResponse(page)
+	waitDocument, stopWaiting := waitForMainDocumentResponse(page, false)
 	defer stopWaiting()
 
 	if err := page.Navigate(u); err != nil {
 		return nil, err
 	}
 
-	response, err := waitDocument()
+	result, err := waitDocument()
 	if err != nil {
 		return nil, err
 	}
+	response := result.response
 	if response == nil {
 		return nil, ErrNavigationFailed
 	}
@@ -193,6 +207,37 @@ func (b *Browser) navigatePage(page *rod.Page, u string, po *PageOptions) (*prot
 	}
 
 	return response, nil
+}
+
+func (b *Browser) navigateTextPage(page *rod.Page, u string, po *PageOptions) (documentResponseResult, error) {
+	if po.beforeRequest != nil {
+		if err := po.beforeRequest(page); err != nil {
+			return documentResponseResult{}, err
+		}
+	}
+
+	waitDocument, stopWaiting := waitForMainDocumentResponse(page, true)
+	defer stopWaiting()
+
+	if err := page.Navigate(u); err != nil {
+		return documentResponseResult{}, err
+	}
+
+	result, err := waitDocument()
+	if err != nil {
+		return documentResponseResult{}, err
+	}
+	if result.response == nil {
+		return documentResponseResult{}, ErrNavigationFailed
+	}
+	if !isTextContentType(result.response.Response.MIMEType) {
+		return documentResponseResult{}, ErrUnsupportedContentType
+	}
+	if err := b.WaitPage(page, po); err != nil {
+		return documentResponseResult{}, err
+	}
+
+	return result, nil
 }
 
 func removeInvisibleElements(page *rod.Page) error {
@@ -284,7 +329,7 @@ func (b *Browser) runPage(page *rod.Page, u string, po *PageOptions, onPageLoad 
 	}()
 
 	if po == nil {
-		po = NewVisitOptions().PageOptions
+		po = newDefaultVisitOptions().PageOptions
 	}
 
 	response, e := b.navigatePage(page, u, po)
@@ -350,7 +395,7 @@ type ReadabilityArticleWithMarkdown struct {
 func (b *Browser) ReadabilityArticle(url string) (ReadabilityArticleWithMarkdown, error) {
 	var articleMarkdown ReadabilityArticleWithMarkdown
 
-	err := b.runWithResponse(url, NewVisitOptions().PageOptions, func(page *rod.Page, response *proto.NetworkResponseReceived) error {
+	err := b.runWithResponse(url, newDefaultVisitOptions().PageOptions, func(page *rod.Page, response *proto.NetworkResponseReceived) error {
 		if rawHTML, err := readResponseBody(page, response); err == nil {
 			articleMarkdown.RawHTML = rawHTML
 		}
@@ -411,7 +456,23 @@ func readResponseBody(page *rod.Page, response *proto.NetworkResponseReceived) (
 		return "", nil
 	}
 
-	reply, err := (proto.NetworkGetResponseBody{RequestID: response.RequestID}).Call(page)
+	var lastErr error
+	for range 10 {
+		body, err := getResponseBody(page, response.RequestID)
+		if err == nil {
+			return body, nil
+		}
+		lastErr = err
+		if !strings.Contains(err.Error(), "No resource with given identifier found") {
+			return "", err
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return "", lastErr
+}
+
+func getResponseBody(page *rod.Page, requestID proto.NetworkRequestID) (string, error) {
+	reply, err := (proto.NetworkGetResponseBody{RequestID: requestID}).Call(page)
 	if err != nil {
 		return "", err
 	}
