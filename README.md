@@ -1,23 +1,24 @@
 # pageviewer
 
-实现渲染的网页浏览。
+基于 `rod` 的渲染式网页访问库，适合抓取渲染后的 HTML、正文、链接，以及文本型主文档原始响应。
 
 ## 特性
-- [x] 支持渲染
-- [x] 默认支持浏览器识别绕过
-- [x] 支持渲染等待超时后，如果页面已经正常渲染，可以返回页面内容，而不是报错
-  - 默认情况下调用WaitStable后有可能已经渲染成功，但是后台还在执行任务，导致报错
-  - 这里涉及到不同的事件，比较有难度，最终的方案是：模拟了WaitDOMStable，但是时间缩短
-- [x] 可以选择复用已有浏览器，确保cookie共享，避免登录限制问题
-- [x] 支持长驻 `Client` 和共享 page worker 池
-- [x] 支持请求前的回调
-- [x] 支持删除不显示的内容，减少返回大小，方便做ai agent
-- [x] 支持文本主文档原始返回 `RawText`
-- [x] 支持通过 `TraceID` 做最近请求排障
 
-## 文档
+- 支持长驻 `Client`，内部维护共享 `Browser` 和 `Page Worker Pool`
+- 保留兼容入口 `Visit`，适合一次性调用
+- 同一 `Browser` / profile 下可复用会话状态，适合共享 cookie 与登录态
+- 默认通过 `stealth.Page` 降低浏览器自动化识别概率
+- 支持 `HTML`、`Links`、`ReadabilityArticle`、`RawText`
+- 支持请求前回调 `WithBeforeRequest`
+- 支持移除不可见内容 `WithRemoveInvisibleDiv`
+- 支持通过 `WithTraceID` + `DebugTrace` 做最近请求排障
+- 页面稳定等待会尽量容忍 `WaitLoad` / `WaitIdle` / `WaitDOMStable` 的超时，降低慢页面误报
 
-- 开发文档见 [docs/shared-browser-pool-development.md](docs/shared-browser-pool-development.md)
+## 安装
+
+```bash
+go get github.com/LubyRuffy/pageviewer
+```
 
 ## 推荐用法
 
@@ -41,5 +42,110 @@ if err != nil {
     }
     return err
 }
+
 _ = html
 ```
+
+## 对外 API
+
+推荐优先使用 `Client`：
+
+```go
+func Start(ctx context.Context, cfg Config) (*Client, error)
+func (c *Client) Close() error
+func (c *Client) Stats() Stats
+func (c *Client) DebugTrace(id string) (Trace, bool)
+
+func (c *Client) Visit(ctx context.Context, url string, fn func(page *rod.Page) error, opts ...RequestOption) error
+func (c *Client) HTML(ctx context.Context, url string, opts ...RequestOption) (string, error)
+func (c *Client) Links(ctx context.Context, url string, opts ...RequestOption) (string, error)
+func (c *Client) ReadabilityArticle(ctx context.Context, url string, opts ...RequestOption) (ReadabilityArticleWithMarkdown, error)
+func (c *Client) RawText(ctx context.Context, url string, opts ...RequestOption) (TextResponse, error)
+```
+
+兼容层仍保留：
+
+```go
+func Visit(u string, onPageLoad func(page *rod.Page) error, opts ...VisitOption) error
+```
+
+## 配置项
+
+`Config` 主要字段：
+
+- `PoolSize`：worker 池大小，默认 `1`
+- `Warmup`：启动时预热的 worker 数量，默认 `1`
+- `AcquireTimeout`：借用 worker 的默认超时，默认 `20s`
+- `UserDataDir`：指定浏览器用户目录
+- `Debug` / `NoHeadless` / `DevTools`
+- `Proxy`
+- `IgnoreCertErrors`
+- `ChromePath`
+- `UserModeBrowser`
+- `RemoteDebuggingPort`
+
+请求级选项：
+
+- `WithWaitTimeout`
+- `WithAcquireTimeout`
+- `WithBeforeRequest`
+- `WithRemoveInvisibleDiv`
+- `WithTraceID`
+- `WithBrowser`（兼容入口 `Visit` 使用）
+
+## 数据提取能力
+
+DOM 模式：
+
+- `HTML`：返回渲染后的完整 HTML
+- `Links`：返回页面中的文本链接
+- `ReadabilityArticle`：返回正文抽取结果，同时附带 Markdown、渲染 HTML、主文档原始 HTML
+
+文本模式：
+
+- `RawText`：只读取主文档响应，不读取二进制内容
+- 支持的内容类型为 `text/*`、`application/json`、`application/xml`、`text/xml`
+
+返回结构：
+
+```go
+type TextResponse struct {
+    Body        string
+    ContentType string
+    StatusCode  int
+    FinalURL    string
+    Header      http.Header
+}
+```
+
+## 一键排障链路
+
+如果上层已经有交互 ID，建议直接透传：
+
+```go
+interactionID := "chat-20260307-001"
+
+_, err := client.HTML(ctx, targetURL, pageviewer.WithTraceID(interactionID))
+if err != nil {
+    trace, ok := client.DebugTrace(interactionID)
+    if ok {
+        log.Printf("trace=%+v", trace)
+    }
+}
+```
+
+`Stats()` 可用于观察当前池状态与最近错误：
+
+```go
+stats := client.Stats()
+log.Printf("workers=%d idle=%d traces=%d lastErr=%q",
+    stats.TotalWorkers,
+    stats.IdleWorkers,
+    stats.RecentTraces,
+    stats.LastError,
+)
+```
+
+## 开发文档
+
+- 详细设计见 [docs/shared-browser-pool-development.md](docs/shared-browser-pool-development.md)
