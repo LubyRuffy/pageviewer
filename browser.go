@@ -44,6 +44,9 @@ func (b *Browser) GetPage() (*rod.Page, error) {
 }
 
 func (b *Browser) Close() error {
+	if b == nil || b.Browser == nil {
+		return nil
+	}
 	return b.Browser.Close()
 }
 
@@ -478,6 +481,10 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 		Browser:     browser,
 		UseUserMode: bo.UserModeBrowser,
 	}, nil
+}
+
+func newBrowserFromConfig(cfg Config) (*Browser, error) {
+	return NewBrowser(cfg.browserOptions()...)
 }
 
 // DefaultBrowser 默认浏览器
