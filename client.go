@@ -48,6 +48,10 @@ func Start(ctx context.Context, cfg Config) (*Client, error) {
 		}
 	}()
 
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	for i := 0; i < cfg.Warmup; i++ {
 		w, workerErr := newClientWorker(ctx, browser, i+1)
 		if workerErr != nil {

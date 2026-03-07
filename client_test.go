@@ -62,6 +62,28 @@ func TestStartCreatesClientWithWarmWorkers(t *testing.T) {
 	assert.Equal(t, []int{1}, created)
 }
 
+func TestStartWithCanceledContextSkipsBrowserStartup(t *testing.T) {
+	var browserCreated int32
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	replaceClientFactories(t,
+		func(Config) (*Browser, error) {
+			atomic.AddInt32(&browserCreated, 1)
+			return &Browser{}, nil
+		},
+		func(ctx context.Context, browser *Browser, id int) (*worker, error) {
+			return &worker{id: id, closeFn: func() error { return nil }}, nil
+		},
+	)
+
+	client, err := Start(ctx, Config{PoolSize: 1, Warmup: 1})
+	require.Nil(t, client)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, int32(0), atomic.LoadInt32(&browserCreated))
+}
+
 func TestStartClampsWarmupToPoolSize(t *testing.T) {
 	var created int32
 
@@ -84,6 +106,33 @@ func TestStartClampsWarmupToPoolSize(t *testing.T) {
 
 	assert.Equal(t, 1, client.Stats().TotalWorkers)
 	assert.Equal(t, int32(1), atomic.LoadInt32(&created))
+}
+
+func TestStartCancelsAfterBrowserCreationAndCleansUp(t *testing.T) {
+	var browserClosed int32
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	replaceClientFactories(t,
+		func(Config) (*Browser, error) {
+			cancel()
+			return &Browser{
+				closeFn: func() error {
+					atomic.AddInt32(&browserClosed, 1)
+					return nil
+				},
+			}, nil
+		},
+		func(ctx context.Context, browser *Browser, id int) (*worker, error) {
+			return &worker{id: id, closeFn: func() error { return nil }}, nil
+		},
+	)
+
+	client, err := Start(ctx, Config{PoolSize: 1, Warmup: 0})
+	require.Nil(t, client)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&browserClosed))
 }
 
 func TestStartCancelsDuringWarmupAndCleansUp(t *testing.T) {
