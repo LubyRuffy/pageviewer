@@ -163,3 +163,56 @@ func TestCloseUnblocksWaitingAcquireWithErrClosed(t *testing.T) {
 	require.NoError(t, <-firstDone)
 	require.NoError(t, <-closeDone)
 }
+
+func TestClosePreventsQueuedRequestFromRunning(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><body><div id="app">ok</div></body></html>`))
+	}))
+	defer s.Close()
+
+	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
+	require.NoError(t, err)
+
+	started := make(chan struct{})
+	releaseVisit := make(chan struct{})
+	firstDone := make(chan error, 1)
+	waitingStarted := make(chan struct{}, 1)
+	waitingDone := make(chan error, 1)
+	closeDone := make(chan error, 1)
+
+	go func() {
+		firstDone <- client.Visit(context.Background(), s.URL, func(page *rod.Page) error {
+			close(started)
+			<-releaseVisit
+			return nil
+		})
+	}()
+
+	<-started
+
+	go func() {
+		waitingDone <- client.Visit(context.Background(), s.URL, func(page *rod.Page) error {
+			waitingStarted <- struct{}{}
+			return nil
+		})
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	go func() {
+		closeDone <- client.Close()
+	}()
+
+	require.ErrorIs(t, <-waitingDone, ErrClosed)
+
+	select {
+	case <-waitingStarted:
+		t.Fatal("queued request ran after close")
+	default:
+	}
+
+	close(releaseVisit)
+
+	require.NoError(t, <-firstDone)
+	require.NoError(t, <-closeDone)
+}

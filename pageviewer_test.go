@@ -179,3 +179,29 @@ func TestVisitDoesNotRepairSuccessfulCompatibilityCall(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), atomic.LoadInt32(&created))
 }
+
+func TestVisitInitialWorkerCreationUsesProvisionTimeout(t *testing.T) {
+	oldWorkerFactory := newClientWorker
+	newClientWorker = func(ctx context.Context, browser *Browser, id int) (*worker, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	t.Cleanup(func() {
+		newClientWorker = oldWorkerFactory
+	})
+	replaceWorkerProvisionTimeout(t, 20*time.Millisecond)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- Visit("https://example.com", func(page *rod.Page) error {
+			return nil
+		}, WithBrowser(&Browser{}))
+	}()
+
+	select {
+	case err := <-done:
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("Visit did not stop waiting for the initial worker after provisioning timeout")
+	}
+}

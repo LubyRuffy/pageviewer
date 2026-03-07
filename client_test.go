@@ -47,6 +47,17 @@ func replaceWorkerRepairRetryDelay(t *testing.T, d time.Duration) {
 	})
 }
 
+func replaceWorkerProvisionTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+
+	oldTimeout := workerProvisionTimeout
+	workerProvisionTimeout = d
+
+	t.Cleanup(func() {
+		workerProvisionTimeout = oldTimeout
+	})
+}
+
 func TestStartCreatesClientWithWarmWorkers(t *testing.T) {
 	client, err := Start(context.Background(), Config{
 		PoolSize:       1,

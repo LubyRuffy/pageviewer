@@ -47,6 +47,27 @@ func TestPoolAcquireReturnsContextCanceled(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
+func TestPoolAcquirePrefersCanceledContextOverReadyWorker(t *testing.T) {
+	for range 100 {
+		p := newWorkerPool(1)
+		readyWorker := &worker{id: 1}
+		require.NoError(t, p.fill(readyWorker))
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		got, release, err := p.acquire(ctx, 50*time.Millisecond)
+		require.Nil(t, got)
+		require.Nil(t, release)
+		require.ErrorIs(t, err, context.Canceled)
+
+		gotAgain, releaseAgain, err := p.acquire(context.Background(), 50*time.Millisecond)
+		require.NoError(t, err)
+		require.Same(t, readyWorker, gotAgain)
+		releaseAgain(workerStateReady)
+	}
+}
+
 func TestPoolFillReturnsErrorWhenFull(t *testing.T) {
 	p := newWorkerPool(1)
 	require.NoError(t, p.fill(&worker{id: 1}))

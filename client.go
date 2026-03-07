@@ -337,6 +337,10 @@ func (c *Client) visitWithOptions(ctx context.Context, url string, ro RequestOpt
 		return err
 	}
 	trace.setWorkerID(worker.id)
+	if c.closed.Load() {
+		release(workerStateReady)
+		return ErrClosed
+	}
 
 	state := workerStateReady
 	defer func() {

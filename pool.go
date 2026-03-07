@@ -69,6 +69,16 @@ func (p *workerPool) acquire(ctx context.Context, timeout time.Duration) (*worke
 
 	select {
 	case w := <-p.ch:
+		select {
+		case <-ctx.Done():
+			select {
+			case p.ch <- w:
+			default:
+			}
+			return nil, nil, ctx.Err()
+		default:
+		}
+
 		var releaseOnce sync.Once
 		return w, func(state workerState) {
 			releaseOnce.Do(func() {

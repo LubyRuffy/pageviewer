@@ -80,7 +80,10 @@ func WithRemoveInvisibleDiv(removeInvisibleDiv bool) VisitOption {
 // Visit 访问页面
 func Visit(u string, onPageLoad func(page *rod.Page) error, opts ...VisitOption) (err error) {
 	vo := NewVisitOptions(opts...)
-	client, err := newCompatibilityClient(context.Background(), vo.browser, vo.acquireTimeout)
+	clientCtx, cancel := context.WithTimeout(context.Background(), workerProvisionTimeout)
+	defer cancel()
+
+	client, err := newCompatibilityClient(clientCtx, vo.browser, vo.acquireTimeout)
 	if err != nil {
 		return err
 	}
