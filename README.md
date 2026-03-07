@@ -11,3 +11,7 @@
 - [x] 可以选择复用已有浏览器，确保cookie共享，避免登录限制问题
 - [x] 支持请求前的回调
 - [x] 支持删除不显示的内容，减少返回大小，方便做ai agent
+
+## 文档
+
+- 开发文档见 [docs/shared-browser-pool-development.md](docs/shared-browser-pool-development.md)
