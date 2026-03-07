@@ -37,6 +37,11 @@ type Browser struct {
 	closeOnce sync.Once
 }
 
+type documentResponseResult struct {
+	response *proto.NetworkResponseReceived
+	err      error
+}
+
 func (b *Browser) GetPage() (*rod.Page, error) {
 	// 使用用户的浏览器说明不需要模拟设备
 	if b.UseUserMode {
@@ -109,47 +114,85 @@ func (b *Browser) waitPageReady(u string, po *PageOptions) (*rod.Page, error) {
 		return nil, err
 	}
 
+	if _, err := b.navigatePage(page, u, po); err != nil {
+		_ = page.Close()
+		return nil, err
+	}
+	return page, nil
+}
+
+func newUnsupportedDOMContentError(u, mimeType string) error {
+	return errors.New("no html content:" + u + ". The url's MIMEType is:" + mimeType)
+}
+
+func waitForMainDocumentResponse(page *rod.Page) (func() (*proto.NetworkResponseReceived, error), func()) {
+	waitPage, cancel := page.WithCancel()
+	resultCh := make(chan documentResponseResult, 1)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		sent := false
+		wait := waitPage.EachEvent(func(e *proto.NetworkResponseReceived) bool {
+			if e.Type != proto.NetworkResourceTypeDocument {
+				return false
+			}
+
+			resultCh <- documentResponseResult{response: e}
+			sent = true
+			return true
+		})
+		wait()
+
+		if !sent {
+			err := waitPage.GetContext().Err()
+			if err == nil {
+				err = ErrNavigationFailed
+			}
+			resultCh <- documentResponseResult{err: err}
+		}
+	}()
+
+	return func() (*proto.NetworkResponseReceived, error) {
+			result := <-resultCh
+			return result.response, result.err
+		}, func() {
+			cancel()
+			<-done
+		}
+}
+
+func (b *Browser) navigatePage(page *rod.Page, u string, po *PageOptions) (*proto.NetworkResponseReceived, error) {
 	if po.beforeRequest != nil {
-		err := po.beforeRequest(page)
-		if err != nil {
+		if err := po.beforeRequest(page); err != nil {
 			return nil, err
 		}
 	}
 
-	// 添加网络响应监听器
-	isHtml := false
-	var lastErr error
-	//var mimeType sync.Map
-	go page.EachEvent(func(e *proto.NetworkResponseReceived) {
-		//mimeType.LoadOrStore(e.Response.MIMEType, struct{}{})
-		if strings.Contains(e.Response.MIMEType, "text/") || strings.Contains(e.Response.MIMEType, "application/json") {
-			isHtml = true
-		} else {
-			if !isHtml {
-				//mimeType.Range(func(key, value any) bool {
-				//	log.Println(key)
-				//	return true
-				//})
-				//log.Println(errors.New("no html content:" + u))
-				lastErr = errors.New("no html content:" + u + ". The url's MIMEType is:" + e.Response.MIMEType)
-				page.Close()
-			}
-		}
-	})()
+	waitDocument, stopWaiting := waitForMainDocumentResponse(page)
+	defer stopWaiting()
 
-	err = page.Navigate(u)
-	if err != nil {
+	if err := page.Navigate(u); err != nil {
 		return nil, err
 	}
 
-	err = b.WaitPage(page, po)
+	response, err := waitDocument()
 	if err != nil {
-		if lastErr != nil {
-			return nil, lastErr
-		}
-		return page, err
+		return nil, err
 	}
-	return page, nil
+	if response == nil {
+		return nil, ErrNavigationFailed
+	}
+	if !isTextContentType(response.Response.MIMEType) {
+		return nil, newUnsupportedDOMContentError(u, response.Response.MIMEType)
+	}
+
+	if err := b.WaitPage(page, po); err != nil {
+		return nil, err
+	}
+
+	return response, nil
 }
 
 func removeInvisibleElements(page *rod.Page) error {
@@ -223,7 +266,7 @@ func removeInvisibleElements(page *rod.Page) error {
 	return err
 }
 
-func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, po *PageOptions) (err error) {
+func (b *Browser) runPage(page *rod.Page, u string, po *PageOptions, onPageLoad func(page *rod.Page, response *proto.NetworkResponseReceived) error) (pageBroken bool, err error) {
 	defer func() {
 		if val := recover(); val != nil {
 			if val != nil {
@@ -244,22 +287,37 @@ func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, po *PageO
 		po = NewVisitOptions().PageOptions
 	}
 
-	page, e := b.waitPageReady(u, po)
+	response, e := b.navigatePage(page, u, po)
 	if e != nil {
-		err = e
-		return
+		return true, e
 	}
-	defer page.Close()
 
 	if po.removeInvisibleDiv {
 		// 执行 JavaScript 检测并删除不可见的 div
 		err = removeInvisibleElements(page)
 		if err != nil {
-			return err
+			return false, err
 		}
 	}
 
-	return onPageLoad(page)
+	return false, onPageLoad(page, response)
+}
+
+func (b *Browser) runWithResponse(u string, po *PageOptions, onPageLoad func(page *rod.Page, response *proto.NetworkResponseReceived) error) (err error) {
+	page, err := b.GetPage()
+	if err != nil {
+		return err
+	}
+	defer page.Close()
+
+	_, err = b.runPage(page, u, po, onPageLoad)
+	return err
+}
+
+func (b *Browser) run(u string, onPageLoad func(page *rod.Page) error, po *PageOptions) error {
+	return b.runWithResponse(u, po, func(page *rod.Page, _ *proto.NetworkResponseReceived) error {
+		return onPageLoad(page)
+	})
 }
 
 // Run 执行页面操作
@@ -292,60 +350,12 @@ type ReadabilityArticleWithMarkdown struct {
 func (b *Browser) ReadabilityArticle(url string) (ReadabilityArticleWithMarkdown, error) {
 	var articleMarkdown ReadabilityArticleWithMarkdown
 
-	po := NewVisitOptions(WithBeforeRequest(func(page *rod.Page) error {
-		go page.EachEvent(func(e *proto.NetworkLoadingFinished) {
-			reply, err := (proto.NetworkGetResponseBody{RequestID: e.RequestID}).Call(page)
-			if err == nil && articleMarkdown.RawHTML == "" {
-				// 获取原始HTML
-				articleMarkdown.RawHTML = reply.Body
-			}
-		})()
-		return nil
-	})).PageOptions
-
-	err := b.run(url, func(page *rod.Page) error {
-		var err error
-
-		// 获取渲染后的HTML
-		articleMarkdown.HTML, err = page.HTML()
-		if err != nil {
-			return err
+	err := b.runWithResponse(url, NewVisitOptions().PageOptions, func(page *rod.Page, response *proto.NetworkResponseReceived) error {
+		if rawHTML, err := readResponseBody(page, response); err == nil {
+			articleMarkdown.RawHTML = rawHTML
 		}
-
-		// 执行 readability
-		jsContent := "() => {\r\n" + strings.Join([]string{
-			js.Readability,
-			js.Shadowdom,
-			//js.Turndown,
-			`
-            const documentClone = deepCloneDocumentWithShadowDOM(
-                document,
-                {
-                  // excludeClasses: [translationTargetClass, translationTargetDividerClass, translationTargetInnerClass],
-                  excludeTags: ['aisidebar-container', 'script', 'style', 'link', 'meta', 'svg', 'canvas', 'iframe', 'object', 'embed'],
-                },
-            )
-            const article = new Readability(documentClone, {charThreshold: MIN_CONTENT_LENGTH}).parse();
-			
-			return article;
-		`}, "\r\n//===\r\n") + "\r\n}"
-		r, err := page.Eval(jsContent)
-		if err != nil {
-			return err
-		}
-		if err = r.Value.Unmarshal(&articleMarkdown); err != nil {
-			return err
-		}
-
-		// 生成markdown
-		articleMarkdown.Markdown, err = htmltomarkdown.ConvertString(articleMarkdown.Content,
-			converter.WithDomain(url))
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}, po)
+		return fillReadabilityArticle(page, url, &articleMarkdown)
+	})
 	return articleMarkdown, err
 }
 
@@ -390,38 +400,90 @@ func (b *Browser) Links(url string, po *PageOptions) (string, error) {
 	var htmlReturn string
 	err := b.run(url, func(page *rod.Page) error {
 		var err error
-		elements, err := page.Elements("a")
-		if err != nil {
-			return err
-		}
-
-		var links []string
-		for _, el := range elements {
-			t, err := el.Text()
-			if err != nil {
-				continue
-			}
-			if t == "" {
-				continue
-			}
-
-			href, err := el.Property("href")
-			if err != nil {
-				continue
-			}
-			if !href.Nil() && href.String() != "" {
-				link := href.String()
-				// 不是javascript开头
-				if !strings.HasPrefix(link, "javascript:") {
-					links = append(links, fmt.Sprintf(`<a href="%s">`+t+`</a>`, href.String()))
-				}
-			}
-		}
-
-		htmlReturn = strings.Join(links, "\n")
+		htmlReturn, err = collectLinks(page)
 		return err
 	}, po)
 	return htmlReturn, err
+}
+
+func readResponseBody(page *rod.Page, response *proto.NetworkResponseReceived) (string, error) {
+	if response == nil {
+		return "", nil
+	}
+
+	reply, err := (proto.NetworkGetResponseBody{RequestID: response.RequestID}).Call(page)
+	if err != nil {
+		return "", err
+	}
+	return reply.Body, nil
+}
+
+func fillReadabilityArticle(page *rod.Page, url string, article *ReadabilityArticleWithMarkdown) error {
+	var err error
+
+	article.HTML, err = page.HTML()
+	if err != nil {
+		return err
+	}
+
+	jsContent := "() => {\r\n" + strings.Join([]string{
+		js.Readability,
+		js.Shadowdom,
+		//js.Turndown,
+		`
+            const documentClone = deepCloneDocumentWithShadowDOM(
+                document,
+                {
+                  // excludeClasses: [translationTargetClass, translationTargetDividerClass, translationTargetInnerClass],
+                  excludeTags: ['aisidebar-container', 'script', 'style', 'link', 'meta', 'svg', 'canvas', 'iframe', 'object', 'embed'],
+                },
+            )
+            const article = new Readability(documentClone, {charThreshold: MIN_CONTENT_LENGTH}).parse();
+			
+			return article;
+		`}, "\r\n//===\r\n") + "\r\n}"
+	r, err := page.Eval(jsContent)
+	if err != nil {
+		return err
+	}
+	if err = r.Value.Unmarshal(article); err != nil {
+		return err
+	}
+
+	article.Markdown, err = htmltomarkdown.ConvertString(article.Content,
+		converter.WithDomain(url))
+	return err
+}
+
+func collectLinks(page *rod.Page) (string, error) {
+	elements, err := page.Elements("a")
+	if err != nil {
+		return "", err
+	}
+
+	var links []string
+	for _, el := range elements {
+		t, err := el.Text()
+		if err != nil {
+			continue
+		}
+		if t == "" {
+			continue
+		}
+
+		href, err := el.Property("href")
+		if err != nil {
+			continue
+		}
+		if !href.Nil() && href.String() != "" {
+			link := href.String()
+			if !strings.HasPrefix(link, "javascript:") {
+				links = append(links, fmt.Sprintf(`<a href="%s">`+t+`</a>`, href.String()))
+			}
+		}
+	}
+
+	return strings.Join(links, "\n"), nil
 }
 
 // NewBrowser 初始化浏览器

@@ -1,9 +1,11 @@
 package pageviewer
 
 import (
+	"context"
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
 )
 
 var (
@@ -70,12 +72,14 @@ func WithRemoveInvisibleDiv(removeInvisibleDiv bool) VisitOption {
 
 // Visit 访问页面
 func Visit(u string, onPageLoad func(page *rod.Page) error, opts ...VisitOption) (err error) {
-	// 生成配置项
 	vo := NewVisitOptions(opts...)
-
-	if vo.browser == nil {
-		vo.browser = DefaultBrowser()
+	client, err := newCompatibilityClient(context.Background(), vo.browser, vo.acquireTimeout)
+	if err != nil {
+		return err
 	}
+	defer client.Close()
 
-	return vo.browser.run(u, onPageLoad, vo.PageOptions)
+	return client.visitWithOptions(context.Background(), u, vo.toRequestOptions(), func(page *rod.Page, _ *proto.NetworkResponseReceived) error {
+		return onPageLoad(page)
+	})
 }
