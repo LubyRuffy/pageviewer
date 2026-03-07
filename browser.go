@@ -24,6 +24,12 @@ var (
 	newBrowserWithOptions = NewBrowser
 )
 
+const (
+	browserCloseWaitTimeout    = 2 * time.Second
+	browserKillWaitTimeout     = 3 * time.Second
+	browserProcessPollInterval = 50 * time.Millisecond
+)
+
 type PageOptions struct {
 	waitTimeout        time.Duration              // 等待超时的设置
 	beforeRequest      func(page *rod.Page) error // 在请求之前的回调，做一些
@@ -33,8 +39,11 @@ type PageOptions struct {
 type Browser struct {
 	UseUserMode bool
 	*rod.Browser
-	closeFn   func() error
-	closeOnce sync.Once
+	closeFn         func() error
+	launcher        *launcher.Launcher
+	leaklessEnabled bool
+	closeOnce       sync.Once
+	closeErr        error
 }
 
 type documentResponseResult struct {
@@ -57,16 +66,82 @@ func (b *Browser) Close() error {
 		return nil
 	}
 
-	var err error
 	b.closeOnce.Do(func() {
-		switch {
-		case b.closeFn != nil:
-			err = b.closeFn()
-		case b.Browser != nil:
-			err = b.Browser.Close()
+		if b.closeFn != nil {
+			b.closeErr = b.closeFn()
+			return
 		}
+
+		var closeErr error
+		if b.Browser != nil {
+			closeErr = b.Browser.Close()
+		}
+
+		b.closeErr = errors.Join(closeErr, cleanupManagedLauncherProcess(b.launcher))
 	})
-	return err
+
+	return b.closeErr
+}
+
+func cleanupManagedLauncherProcess(l *launcher.Launcher) error {
+	if l == nil || l.PID() == 0 {
+		return nil
+	}
+
+	exited, err := waitForProcessTreeExit(l.PID(), browserCloseWaitTimeout)
+	if err != nil {
+		return err
+	}
+	if exited {
+		return nil
+	}
+
+	l.Kill()
+
+	exited, err = waitForProcessTreeExit(l.PID(), browserKillWaitTimeout)
+	if err != nil {
+		return err
+	}
+	if exited {
+		return nil
+	}
+
+	return fmt.Errorf("browser process tree %d did not exit after kill", l.PID())
+}
+
+func forceCleanupManagedLauncherProcess(l *launcher.Launcher) error {
+	if l == nil || l.PID() == 0 {
+		return nil
+	}
+
+	l.Kill()
+
+	exited, err := waitForProcessTreeExit(l.PID(), browserKillWaitTimeout)
+	if err != nil {
+		return err
+	}
+	if exited {
+		return nil
+	}
+
+	return fmt.Errorf("browser process tree %d did not exit after forced cleanup", l.PID())
+}
+
+func waitForProcessTreeExit(pid int, timeout time.Duration) (bool, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		exists, err := processTreeExists(pid)
+		if err != nil {
+			return false, err
+		}
+		if !exists {
+			return true, nil
+		}
+		if time.Now().After(deadline) {
+			return false, nil
+		}
+		time.Sleep(browserProcessPollInterval)
+	}
 }
 
 func (b *Browser) WaitPage(page *rod.Page, po *PageOptions) error {
@@ -563,7 +638,12 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 		l = launcher.New()
 	}
 
-	l = l.Leakless(false).
+	leaklessEnabled := true
+	if bo.LeaklessSet {
+		leaklessEnabled = bo.Leakless
+	}
+
+	l = l.Leakless(leaklessEnabled).
 		Delete("enable-automation").
 		Delete("disable-blink-features").
 		Delete("disable-blink-features=AutomationControlled")
@@ -592,11 +672,11 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 		l = l.UserDataDir(bo.UserDataDir)
 	}
 	l = l.NoSandbox(true)
-	debugURL, err := l.Launch()
+	controlURL, err := l.Launch()
 	if err != nil {
 		return nil, err
 	}
-	browser = browser.ControlURL(debugURL)
+	browser = browser.ControlURL(controlURL)
 	if bo.Debug {
 		browser = browser.Trace(true)
 	}
@@ -613,9 +693,16 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 			l.Cleanup()
 		}
 	}
+	cleanupLaunchError := func(err error) error {
+		cleanupErr := forceCleanupManagedLauncherProcess(l)
+		if ownsUserDataDir {
+			l.Cleanup()
+		}
+		return errors.Join(err, cleanupErr)
+	}
 	if err := browser.Connect(); err != nil {
 		cleanupLaunch()
-		return nil, err
+		return nil, cleanupLaunchError(err)
 	}
 
 	closeBrowser := func() error {
@@ -623,27 +710,26 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 		if browser != nil {
 			closeErr = browser.Close()
 		}
-		if closeErr != nil {
-			l.Kill()
-		}
+		cleanupErr := cleanupManagedLauncherProcess(l)
 		if ownsUserDataDir {
 			l.Cleanup()
 		}
-		return closeErr
+		return errors.Join(closeErr, cleanupErr)
 	}
 
 	if bo.IgnoreCertErrors {
 		err := browser.IgnoreCertErrors(true)
 		if err != nil {
-			_ = closeBrowser()
-			return nil, err
+			return nil, cleanupLaunchError(err)
 		}
 	}
 
 	return &Browser{
-		Browser:     browser,
-		UseUserMode: bo.UserModeBrowser,
-		closeFn:     closeBrowser,
+		Browser:         browser,
+		UseUserMode:     bo.UserModeBrowser,
+		closeFn:         closeBrowser,
+		launcher:        l,
+		leaklessEnabled: leaklessEnabled,
 	}, nil
 }
 

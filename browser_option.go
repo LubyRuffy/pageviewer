@@ -6,6 +6,8 @@ type browserOptions struct {
 	DevTools            bool
 	Proxy               string
 	IgnoreCertErrors    bool
+	Leakless            bool
+	LeaklessSet         bool
 	ChromePath          string // 设定后可以复用浏览器cookie
 	UserModeBrowser     bool   // 是否使用用户浏览器
 	RemoteDebuggingPort int    // 远程调试端口
@@ -37,6 +39,12 @@ func WithProxy(proxy string) BrowserOption {
 func WithIgnoreCertErrors(ignoreCertErrors bool) BrowserOption {
 	return func(o *browserOptions) {
 		o.IgnoreCertErrors = ignoreCertErrors
+	}
+}
+func WithLeakless(leakless bool) BrowserOption {
+	return func(o *browserOptions) {
+		o.Leakless = leakless
+		o.LeaklessSet = true
 	}
 }
 func WithChromePath(chromePath string) BrowserOption {
