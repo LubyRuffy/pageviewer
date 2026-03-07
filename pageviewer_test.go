@@ -1,12 +1,27 @@
 package pageviewer
 
 import (
-	"github.com/stretchr/testify/assert"
+	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/stretchr/testify/assert"
 )
+
+func resetDefaultBrowserForTest(t *testing.T) {
+	t.Helper()
+
+	t.Cleanup(func() {
+		if defaultBrowser != nil {
+			_ = defaultBrowser.Close()
+		}
+		defaultBrowser = nil
+		once = sync.Once{}
+	})
+}
 
 func TestGetBrowser(t *testing.T) {
 	tests := []struct {
@@ -45,6 +60,9 @@ func TestGetBrowser(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			browser, err := NewBrowser(WithDebug(tt.debug), WithProxy(tt.proxy), WithIgnoreCertErrors(tt.ignoreCertErrors))
 			assert.NoError(t, err)
+			if browser != nil {
+				defer browser.Close()
+			}
 			if browser == nil {
 				t.Error("GetBrowser() returned nil")
 			}
@@ -53,28 +71,30 @@ func TestGetBrowser(t *testing.T) {
 }
 
 func TestGetPage(t *testing.T) {
-	tests := []struct {
-		name    string
-		browser *Browser
-	}{
-		{
-			name:    "existing browser",
-			browser: DefaultBrowser(),
-		},
+	browser, err := NewBrowser()
+	assert.NoError(t, err)
+	if browser != nil {
+		defer browser.Close()
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			page, err := tt.browser.GetPage()
-			assert.NoError(t, err)
-			if page == nil {
-				t.Error("GetPage() returned nil")
-			}
-		})
+	page, err := browser.GetPage()
+	assert.NoError(t, err)
+	if page != nil {
+		defer page.Close()
+	}
+	if page == nil {
+		t.Error("GetPage() returned nil")
 	}
 }
 
 func TestVisit(t *testing.T) {
+	resetDefaultBrowserForTest(t)
+
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><body><div id="app">ok</div></body></html>`))
+	}))
+	defer s.Close()
+
 	tests := []struct {
 		name    string
 		url     string
@@ -82,7 +102,7 @@ func TestVisit(t *testing.T) {
 	}{
 		{
 			name:    "valid url",
-			url:     "https://example.com",
+			url:     s.URL,
 			wantErr: false,
 		},
 		{
@@ -106,19 +126,22 @@ func TestVisit(t *testing.T) {
 }
 
 func TestVisitWithOptions(t *testing.T) {
-	b, err := NewBrowser(WithDebug(true),
-		WithChromePath("/Applications/Chromium.app/Contents/MacOS/Chromium"),
-		//WithChromePath("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
-		WithUserModeBrowser(true),
-		WithIgnoreCertErrors(true),
-		WithRemoteDebuggingPort(11191),
-		WithUserDataDir("/tmp/pageviewer_data"),
-	)
-	assert.NoError(t, err)
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><body><div id="app">custom browser</div></body></html>`))
+	}))
+	defer s.Close()
 
-	err = Visit("https://aistudio.google.com/prompts/new_chat", func(page *rod.Page) error {
-		t.Log(page.MustHTML())
+	b, err := NewBrowser()
+	assert.NoError(t, err)
+	if b != nil {
+		defer b.Close()
+	}
+
+	var html string
+	err = Visit(s.URL, func(page *rod.Page) error {
+		html = page.MustHTML()
 		return nil
 	}, WithBrowser(b), WithWaitTimeout(time.Second*20))
 	assert.NoError(t, err)
+	assert.Contains(t, html, "custom browser")
 }

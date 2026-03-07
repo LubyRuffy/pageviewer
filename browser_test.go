@@ -34,6 +34,7 @@ func TestBrowser_RawHTML(t *testing.T) {
 
 	browser, err := NewBrowser(WithIgnoreCertErrors(true))
 	assert.NoError(t, err)
+	defer browser.Close()
 	html1, err := browser.RawHTML(s.URL, NewVisitOptions().PageOptions)
 	assert.NoError(t, err)
 	html2, err := browser.HTML(s.URL, NewVisitOptions().PageOptions)
@@ -52,7 +53,7 @@ func TestBrowser_WithIgnoreCertErrors(t *testing.T) {
 	defer s.Close()
 
 	// 复用用户浏览器
-	b, err := NewBrowser(WithDebug(true))
+	b, err := NewBrowser()
 	assert.NoError(t, err)
 
 	vo := NewVisitOptions(WithWaitTimeout(time.Second * 20)).PageOptions
@@ -65,10 +66,9 @@ func TestBrowser_WithIgnoreCertErrors(t *testing.T) {
 	assert.Error(t, err)
 	b.Close()
 
-	b, err = NewBrowser(WithDebug(true),
-		WithIgnoreCertErrors(true),
-	)
+	b, err = NewBrowser(WithIgnoreCertErrors(true))
 	assert.NoError(t, err)
+	defer b.Close()
 	vo = NewVisitOptions(WithWaitTimeout(time.Second * 20)).PageOptions
 
 	err = b.Run(s.URL, func(page *rod.Page) error {
@@ -95,7 +95,7 @@ func TestBrowser_RemoveInvisibleElements(t *testing.T) {
 	}))
 	var html string
 	vo := NewVisitOptions(WithWaitTimeout(time.Second*20), WithRemoveInvisibleDiv(true)).PageOptions
-	b, err := NewBrowser(WithDebug(true))
+	b, err := NewBrowser()
 	assert.NoError(t, err)
 	defer b.Close()
 
@@ -115,18 +115,27 @@ func TestBrowser_HTML(t *testing.T) {
 	}))
 	defer s.Close()
 
-	browser, err := NewBrowser(WithIgnoreCertErrors(true), WithDebug(true))
+	browser, err := NewBrowser(WithIgnoreCertErrors(true))
 	assert.NoError(t, err)
+	defer browser.Close()
 	_, err = browser.HTML(s.URL, NewVisitOptions().PageOptions)
 	assert.Error(t, err)
 
 }
 func TestBrowser_HTML_longtime(t *testing.T) {
-	browser, err := NewBrowser(WithDebug(true))
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		_, _ = w.Write([]byte(`<html><body><div id="app">slow but local</div></body></html>`))
+	}))
+	defer s.Close()
+
+	browser, err := NewBrowser()
 	assert.NoError(t, err)
-	html, err := browser.HTML("https://www.genomics.cn/", NewVisitOptions(WithWaitTimeout(time.Second*5)).PageOptions)
+	defer browser.Close()
+	html, err := browser.HTML(s.URL, NewVisitOptions(WithWaitTimeout(time.Second*5)).PageOptions)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, html)
+	assert.Contains(t, html, "slow but local")
 
 }
 
@@ -148,8 +157,9 @@ func TestBrowser_Links(t *testing.T) {
 	}))
 	defer s.Close()
 
-	browser, err := NewBrowser(WithIgnoreCertErrors(true), WithDebug(true))
+	browser, err := NewBrowser(WithIgnoreCertErrors(true))
 	assert.NoError(t, err)
+	defer browser.Close()
 	str, err := browser.Links(s.URL, NewVisitOptions().PageOptions)
 	assert.NoError(t, err)
 	assert.Contains(t, str, "https://example1.com")
@@ -177,7 +187,7 @@ func TestBrowser_ReadabilityArticle(t *testing.T) {
 	url := s.URL
 	//url := `https://www.freebuf.com/articles/web/439189.html`
 
-	browser, err := NewBrowser(WithDebug(true))
+	browser, err := NewBrowser()
 	assert.NoError(t, err)
 	defer browser.Close()
 
