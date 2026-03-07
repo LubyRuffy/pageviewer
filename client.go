@@ -118,14 +118,14 @@ func newCompatibilityClient(ctx context.Context, browser *Browser, acquireTimeou
 }
 
 func (c *Client) Visit(ctx context.Context, url string, fn func(page *rod.Page) error, opts ...RequestOption) error {
-	return c.visitWithOptions(ctx, url, NewRequestOptions(opts...), func(page *rod.Page, _ *proto.NetworkResponseReceived) error {
+	return c.visitWithOptions(ctx, url, NewRequestOptions(opts...), false, func(page *rod.Page, _ *proto.NetworkResponseReceived) error {
 		return fn(page)
 	})
 }
 
 func (c *Client) HTML(ctx context.Context, url string, opts ...RequestOption) (string, error) {
 	var html string
-	err := c.visitWithOptions(ctx, url, NewRequestOptions(opts...), func(page *rod.Page, _ *proto.NetworkResponseReceived) error {
+	err := c.visitWithOptions(ctx, url, NewRequestOptions(opts...), true, func(page *rod.Page, _ *proto.NetworkResponseReceived) error {
 		var err error
 		html, err = page.HTML()
 		return err
@@ -135,7 +135,7 @@ func (c *Client) HTML(ctx context.Context, url string, opts ...RequestOption) (s
 
 func (c *Client) Links(ctx context.Context, url string, opts ...RequestOption) (string, error) {
 	var links string
-	err := c.visitWithOptions(ctx, url, NewRequestOptions(opts...), func(page *rod.Page, _ *proto.NetworkResponseReceived) error {
+	err := c.visitWithOptions(ctx, url, NewRequestOptions(opts...), true, func(page *rod.Page, _ *proto.NetworkResponseReceived) error {
 		var err error
 		links, err = collectLinks(page)
 		return err
@@ -145,7 +145,7 @@ func (c *Client) Links(ctx context.Context, url string, opts ...RequestOption) (
 
 func (c *Client) ReadabilityArticle(ctx context.Context, url string, opts ...RequestOption) (ReadabilityArticleWithMarkdown, error) {
 	var article ReadabilityArticleWithMarkdown
-	err := c.visitWithOptions(ctx, url, NewRequestOptions(opts...), func(page *rod.Page, response *proto.NetworkResponseReceived) error {
+	err := c.visitWithOptions(ctx, url, NewRequestOptions(opts...), true, func(page *rod.Page, response *proto.NetworkResponseReceived) error {
 		if rawHTML, err := readResponseBody(page, response); err == nil {
 			article.RawHTML = rawHTML
 		}
@@ -219,7 +219,7 @@ func (c *Client) closeResources() error {
 	return errors.Join(errs...)
 }
 
-func (c *Client) visitWithOptions(ctx context.Context, url string, ro RequestOptions, onPageLoad func(page *rod.Page, response *proto.NetworkResponseReceived) error) error {
+func (c *Client) visitWithOptions(ctx context.Context, url string, ro RequestOptions, reuseWorker bool, onPageLoad func(page *rod.Page, response *proto.NetworkResponseReceived) error) error {
 	if c == nil {
 		return ErrBrowserUnavailable
 	}
@@ -247,7 +247,7 @@ func (c *Client) visitWithOptions(ctx context.Context, url string, ro RequestOpt
 	}()
 
 	pageBroken, err := c.browser.runPage(worker.page, url, ro.pageOptions(), onPageLoad)
-	if pageBroken {
+	if pageBroken || !reuseWorker || !isReusableWorkerPage(worker.page) {
 		state = workerStateBroken
 	}
 
@@ -329,4 +329,12 @@ func (c *Client) workerIndexLocked(target *worker) int {
 func (c *Client) removeWorkerAtLocked(index int) {
 	c.workers = append(c.workers[:index], c.workers[index+1:]...)
 	c.totalWorkers.Store(int32(len(c.workers)))
+}
+
+func isReusableWorkerPage(page *rod.Page) bool {
+	if page == nil {
+		return false
+	}
+	_, err := page.Info()
+	return err == nil
 }

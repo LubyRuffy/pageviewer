@@ -52,3 +52,23 @@ func TestVisitWithBrowserKeepsBrowserReusable(t *testing.T) {
 	}, WithBrowser(browser))
 	require.NoError(t, err)
 }
+
+func TestClientVisitRepairsClosedWorker(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><body><div id="app">ok</div></body></html>`))
+	}))
+	defer s.Close()
+
+	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
+	require.NoError(t, err)
+	defer client.Close()
+
+	err = client.Visit(context.Background(), s.URL, func(page *rod.Page) error {
+		return page.Close()
+	})
+	require.NoError(t, err)
+
+	html, err := client.HTML(context.Background(), s.URL)
+	require.NoError(t, err)
+	assert.Contains(t, html, `id="app"`)
+}

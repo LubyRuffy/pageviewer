@@ -79,7 +79,7 @@ func Visit(u string, onPageLoad func(page *rod.Page) error, opts ...VisitOption)
 	}
 	defer client.Close()
 
-	return client.visitWithOptions(context.Background(), u, vo.toRequestOptions(), func(page *rod.Page, _ *proto.NetworkResponseReceived) error {
+	return client.visitWithOptions(context.Background(), u, vo.toRequestOptions(), false, func(page *rod.Page, _ *proto.NetworkResponseReceived) error {
 		return onPageLoad(page)
 	})
 }
