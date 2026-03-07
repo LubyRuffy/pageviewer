@@ -29,3 +29,42 @@ func TestRequestOptionsKeepBeforeRequest(t *testing.T) {
 	require.NotNil(t, opts.BeforeRequest)
 	assert.False(t, called)
 }
+
+func TestNewVisitOptionsKeepsLegacyWrappers(t *testing.T) {
+	expectedBrowser := &Browser{}
+	beforeRequest := func(page *rod.Page) error {
+		return nil
+	}
+
+	opts := NewVisitOptions(
+		WithBrowser(expectedBrowser),
+		WithWaitTimeout(2*time.Second),
+		WithRemoveInvisibleDiv(true),
+		WithBeforeRequest(beforeRequest),
+		WithAcquireTimeout(3*time.Second),
+	)
+
+	require.NotNil(t, opts)
+	require.NotNil(t, opts.PageOptions)
+	assert.Same(t, expectedBrowser, opts.browser)
+	assert.Equal(t, 2*time.Second, opts.PageOptions.waitTimeout)
+	assert.True(t, opts.PageOptions.removeInvisibleDiv)
+	assert.NotNil(t, opts.PageOptions.beforeRequest)
+}
+
+func TestCustomVisitOptionStillWorks(t *testing.T) {
+	expectedBrowser := &Browser{}
+	var custom VisitOption = func(vo *VisitOptions) {
+		vo.PageOptions.waitTimeout = time.Second
+		vo.browser = expectedBrowser
+	}
+
+	visitOptions := NewVisitOptions(custom)
+	require.NotNil(t, visitOptions)
+	assert.Equal(t, time.Second, visitOptions.PageOptions.waitTimeout)
+	assert.Same(t, expectedBrowser, visitOptions.browser)
+
+	requestOptions := NewRequestOptions(custom)
+	assert.Equal(t, time.Second, requestOptions.WaitTimeout)
+	assert.Same(t, expectedBrowser, requestOptions.browser)
+}

@@ -10,11 +10,18 @@ var (
 	DefaultWaitStableTimeout = time.Second * 20
 )
 
+func newDefaultVisitOptions() *VisitOptions {
+	return &VisitOptions{
+		PageOptions: &PageOptions{
+			waitTimeout: DefaultWaitStableTimeout,
+		},
+	}
+}
+
 func NewVisitOptions(opts ...VisitOption) *VisitOptions {
-	ro := NewRequestOptions(opts...)
-	vo := &VisitOptions{
-		PageOptions: ro.toPageOptions(),
-		browser:     ro.browser,
+	vo := newDefaultVisitOptions()
+	for _, opt := range opts {
+		opt(vo)
 	}
 	if vo.browser == nil {
 		vo.browser = DefaultBrowser()
@@ -25,37 +32,39 @@ func NewVisitOptions(opts ...VisitOption) *VisitOptions {
 // VisitOptions 访问配置项
 type VisitOptions struct {
 	*PageOptions
-	browser *Browser // 浏览器对象，只在Visit调用时有效
+	browser        *Browser // 浏览器对象，只在Visit调用时有效
+	acquireTimeout time.Duration
+	traceID        string
 }
 
 // VisitOption 访问配置项
-type VisitOption = RequestOption
+type VisitOption func(vo *VisitOptions)
 
 // WithWaitTimeout 设置等待超时时间
 func WithWaitTimeout(timeout time.Duration) VisitOption {
-	return func(ro *RequestOptions) {
-		ro.WaitTimeout = timeout
+	return func(vo *VisitOptions) {
+		vo.PageOptions.waitTimeout = timeout
 	}
 }
 
 // WithBrowser 设置浏览器对象
 func WithBrowser(browser *Browser) VisitOption {
-	return func(ro *RequestOptions) {
-		ro.browser = browser
+	return func(vo *VisitOptions) {
+		vo.browser = browser
 	}
 }
 
 // WithBeforeRequest 在请求之前的回调，做一些预处理操作
 func WithBeforeRequest(f func(page *rod.Page) error) VisitOption {
-	return func(ro *RequestOptions) {
-		ro.BeforeRequest = f
+	return func(vo *VisitOptions) {
+		vo.PageOptions.beforeRequest = f
 	}
 }
 
 // WithRemoveInvisibleDiv 移除不可见的div
 func WithRemoveInvisibleDiv(removeInvisibleDiv bool) VisitOption {
-	return func(ro *RequestOptions) {
-		ro.RemoveInvisibleDiv = removeInvisibleDiv
+	return func(vo *VisitOptions) {
+		vo.PageOptions.removeInvisibleDiv = removeInvisibleDiv
 	}
 }
 

@@ -16,28 +16,29 @@ type RequestOptions struct {
 	browser *Browser
 }
 
-type RequestOption func(ro *RequestOptions)
+type RequestOption = VisitOption
 
 func NewRequestOptions(opts ...RequestOption) RequestOptions {
-	ro := RequestOptions{
-		WaitTimeout: DefaultWaitStableTimeout,
-	}
+	vo := newDefaultVisitOptions()
 	for _, opt := range opts {
-		opt(&ro)
+		opt(vo)
 	}
-	return ro
+	return vo.toRequestOptions()
 }
 
 func WithAcquireTimeout(timeout time.Duration) RequestOption {
-	return func(ro *RequestOptions) {
-		ro.AcquireTimeout = timeout
+	return func(vo *VisitOptions) {
+		vo.acquireTimeout = timeout
 	}
 }
 
-func (ro RequestOptions) toPageOptions() *PageOptions {
-	return &PageOptions{
-		waitTimeout:        ro.WaitTimeout,
-		beforeRequest:      ro.BeforeRequest,
-		removeInvisibleDiv: ro.RemoveInvisibleDiv,
+func (vo *VisitOptions) toRequestOptions() RequestOptions {
+	return RequestOptions{
+		WaitTimeout:        vo.PageOptions.waitTimeout,
+		AcquireTimeout:     vo.acquireTimeout,
+		BeforeRequest:      vo.PageOptions.beforeRequest,
+		RemoveInvisibleDiv: vo.PageOptions.removeInvisibleDiv,
+		TraceID:            vo.traceID,
+		browser:            vo.browser,
 	}
 }
