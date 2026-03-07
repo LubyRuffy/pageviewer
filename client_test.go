@@ -37,18 +37,6 @@ func replaceNewBrowserWithOptions(t *testing.T, factory func(...BrowserOption) (
 }
 
 func TestStartCreatesClientWithWarmWorkers(t *testing.T) {
-	var created []int
-
-	replaceClientFactories(t,
-		func(Config) (*Browser, error) {
-			return &Browser{}, nil
-		},
-		func(ctx context.Context, browser *Browser, id int) (*worker, error) {
-			created = append(created, id)
-			return &worker{id: id, closeFn: func() error { return nil }}, nil
-		},
-	)
-
 	client, err := Start(context.Background(), Config{
 		PoolSize:       1,
 		Warmup:         1,
@@ -59,7 +47,12 @@ func TestStartCreatesClientWithWarmWorkers(t *testing.T) {
 
 	stats := client.Stats()
 	assert.Equal(t, 1, stats.TotalWorkers)
-	assert.Equal(t, []int{1}, created)
+
+	warmWorker, release, err := client.pool.acquire(context.Background(), 200*time.Millisecond)
+	require.NoError(t, err)
+	require.NotNil(t, warmWorker)
+	require.NotNil(t, warmWorker.page)
+	release(workerStateReady)
 }
 
 func TestStartWithCanceledContextSkipsBrowserStartup(t *testing.T) {
@@ -178,7 +171,7 @@ func TestStartCancelsDuringWarmupAndCleansUp(t *testing.T) {
 	assert.Equal(t, int32(1), atomic.LoadInt32(&workerClosed))
 }
 
-func TestCloseIsIdempotent(t *testing.T) {
+func TestCloseIsIdempotentWithMockedResources(t *testing.T) {
 	var browserClosed int32
 	var workerClosed int32
 
@@ -210,6 +203,20 @@ func TestCloseIsIdempotent(t *testing.T) {
 	require.NoError(t, client.Close())
 	assert.Equal(t, int32(1), atomic.LoadInt32(&browserClosed))
 	assert.Equal(t, int32(1), atomic.LoadInt32(&workerClosed))
+}
+
+func TestCloseIsIdempotent(t *testing.T) {
+	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
+	require.NoError(t, err)
+
+	browser := client.browser
+
+	require.NoError(t, client.Close())
+	assert.Equal(t, 0, client.Stats().TotalWorkers)
+	require.NoError(t, client.Close())
+
+	_, err = browser.GetPage()
+	require.Error(t, err)
 }
 
 func TestNewBrowserFromConfigPassesThroughOptions(t *testing.T) {
