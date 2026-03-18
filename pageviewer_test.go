@@ -181,6 +181,11 @@ func TestVisitDoesNotRepairSuccessfulCompatibilityCall(t *testing.T) {
 }
 
 func TestVisitInitialWorkerCreationUsesProvisionTimeout(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><body><div id="app">ok</div></body></html>`))
+	}))
+	defer s.Close()
+
 	oldWorkerFactory := newClientWorker
 	newClientWorker = func(ctx context.Context, browser *Browser, id int) (*worker, error) {
 		<-ctx.Done()
@@ -193,7 +198,7 @@ func TestVisitInitialWorkerCreationUsesProvisionTimeout(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- Visit("https://example.com", func(page *rod.Page) error {
+		done <- Visit(s.URL, func(page *rod.Page) error {
 			return nil
 		}, WithBrowser(&Browser{}))
 	}()

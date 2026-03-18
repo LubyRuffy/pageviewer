@@ -81,6 +81,7 @@ go run ./cmd/pageviewer --url https://example.com --mode html --trace-id chat-20
 
 ## 测试约定
 
+- 浏览器集成测试的入口页面和静态资源都应通过 `net/http/httptest` 提供，不依赖真实外网
 - 新增 CLI 行为时，优先为 `cmd/pageviewer/app_test.go` 补测试
 - 成功结果只允许写标准输出
 - 错误结果只允许写标准错误

@@ -142,6 +142,12 @@ func TestBrowser_HTML_longtime(t *testing.T) {
 func TestBrowser_Links(t *testing.T) {
 
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/image.svg" {
+			w.Header().Set("Content-Type", "image/svg+xml")
+			_, _ = w.Write([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>`))
+			return
+		}
+
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`
         <html>
@@ -150,7 +156,7 @@ func TestBrowser_Links(t *testing.T) {
                 <a href="https://example2.com">Example2</a>
                 <a href="https://example3.com">Example3</a>
                 <a href="javascript:a()">Example4</a>
-                <a href="https://example5.com"><img src="https://example6.com"/></a>
+                <a href="https://example5.com"><img src="/image.svg"/></a>
             </body>
         </html>
     `))
