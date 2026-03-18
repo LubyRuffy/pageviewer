@@ -20,7 +20,7 @@ GOTOOLCHAIN=go1.24.2 go test ./cmd/pageviewer -count=1
 参数解析：
 
 ```bash
-GOTOOLCHAIN=go1.24.2 go test ./cmd/pageviewer -run 'TestParseFlagsRequiresURLAndMode|TestParseFlagsRejectsInvalidMode|TestParseFlagsAllowsRepeatedModesWithJSON|TestParseFlagsRejectsMultipleModesWithoutJSON|TestParseFlagsRejectsDuplicateModes|TestParseFlagsParsesCommonOptions' -count=1
+GOTOOLCHAIN=go1.24.2 go test ./cmd/pageviewer -run 'TestParseFlagsRequiresURL|TestParseFlagsDefaultsModeToHTML|TestParseFlagsDefaultsModeToHTMLForJSON|TestParseFlagsRejectsInvalidMode|TestParseFlagsAllowsRepeatedModesWithJSON|TestParseFlagsRejectsMultipleModesWithoutJSON|TestParseFlagsRejectsDuplicateModes|TestParseFlagsParsesCommonOptions' -count=1
 ```
 
 错误处理：
@@ -46,7 +46,7 @@ GOTOOLCHAIN=go1.24.2 go test ./... -run '^$' -count=1
 HTML：
 
 ```bash
-go run ./cmd/pageviewer --url https://example.com --mode html
+go run ./cmd/pageviewer --url https://example.com
 ```
 
 正文 JSON：

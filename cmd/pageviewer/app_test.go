@@ -15,14 +15,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseFlagsRequiresURLAndMode(t *testing.T) {
+func TestParseFlagsRequiresURL(t *testing.T) {
 	_, err := parseFlags([]string{"--mode", "html"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--url is required")
+}
 
-	_, err = parseFlags([]string{"--url", "https://example.com"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--mode is required")
+func TestParseFlagsDefaultsModeToHTML(t *testing.T) {
+	opts, err := parseFlags([]string{"--url", "https://example.com"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"html"}, opts.modes)
+	assert.False(t, opts.jsonOutput)
+}
+
+func TestParseFlagsDefaultsModeToHTMLForJSON(t *testing.T) {
+	opts, err := parseFlags([]string{"--url", "https://example.com", "--json"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"html"}, opts.modes)
+	assert.True(t, opts.jsonOutput)
 }
 
 func TestParseFlagsRejectsInvalidMode(t *testing.T) {
@@ -164,6 +174,26 @@ func TestRunCLIRendersModes(t *testing.T) {
 			assert.Equal(t, tc.expected, strings.TrimSpace(stdout.String()))
 		})
 	}
+}
+
+func TestRunCLIDefaultsToHTMLMode(t *testing.T) {
+	original := startClient
+	startClient = func(ctx context.Context, cfg pageviewer.Config) (fetcher, error) {
+		return &fakeFetcher{
+			htmlFn: func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (string, error) {
+				return "<html><body>default html</body></html>", nil
+			},
+		}, nil
+	}
+	t.Cleanup(func() { startClient = original })
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := runCLI(context.Background(), []string{"--url", "https://example.com"}, &stdout, &stderr)
+	require.Equal(t, 0, code)
+	assert.Empty(t, stderr.String())
+	assert.Equal(t, "<html><body>default html</body></html>", strings.TrimSpace(stdout.String()))
 }
 
 func TestRunCLIJSONIncludesModesAndResultsForSingleMode(t *testing.T) {

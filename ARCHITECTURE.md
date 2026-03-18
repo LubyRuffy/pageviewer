@@ -52,7 +52,7 @@ CLI args
 `cmd/pageviewer/app.go` 当前按四层职责组织：
 
 1. `parseFlags`
-   解析 `--url`、可重复的 `--mode`、`--json`、`--wait-timeout` 等参数
+   解析 `--url`、可重复的 `--mode`、`--json`、`--wait-timeout` 等参数，并在未传 `--mode` 时默认使用 `html`
 2. `buildConfig`
    把 CLI 参数映射到 `pageviewer.Config` 和请求级 `RequestOption`，多 mode JSON 时自动放大 worker 池
 3. `runCLI`
@@ -64,7 +64,7 @@ CLI args
 
 ### 成功路径
 
-1. 用户执行 `go run ./cmd/pageviewer --url ... --mode ...`
+1. 用户执行 `go run ./cmd/pageviewer --url ... [--mode ...]`
 2. `parseFlags` 解析并校验参数
 3. `buildConfig` 生成浏览器级配置和请求级选项；多 mode JSON 时自动把 `PoolSize` / `Warmup` 提升到 mode 数量
 4. `runCLI` 调用 `pageviewer.Start(...)`

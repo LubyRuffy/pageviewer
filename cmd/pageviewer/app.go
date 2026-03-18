@@ -69,8 +69,8 @@ var startClient = func(ctx context.Context, cfg pageviewer.Config) (fetcher, err
 }
 
 const usageText = `Usage:
-  pageviewer --url <url> --mode <mode> [options]
-  pageviewer --url <url> --json --mode <mode> --mode <mode> [options]
+  pageviewer --url <url> [--mode <mode>] [options]
+  pageviewer --url <url> --json [--mode <mode>] [--mode <mode>] [options]
 
 Modes:
   html       Rendered full HTML
@@ -80,7 +80,7 @@ Modes:
 
 Options:
   --url string                  Target URL
-  --mode value                  Output mode; repeatable with --json
+  --mode value                  Output mode; defaults to html, repeatable with --json
   --json                        Render JSON output
   --wait-timeout duration       Page wait timeout, e.g. 15s
   --trace-id string             Trace ID for debugging
@@ -117,7 +117,7 @@ func parseFlags(args []string) (cliOptions, error) {
 	}
 	opts.modes = append(opts.modes, modes...)
 	if len(opts.modes) == 0 {
-		return cliOptions{}, errors.New("--mode is required")
+		opts.modes = []string{"html"}
 	}
 	seenModes := make(map[string]struct{}, len(opts.modes))
 	for _, mode := range opts.modes {

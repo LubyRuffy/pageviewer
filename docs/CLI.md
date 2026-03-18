@@ -7,14 +7,14 @@
 命令入口：
 
 ```bash
-go run ./cmd/pageviewer --url https://example.com --mode html
+go run ./cmd/pageviewer --url https://example.com
 ```
 
 也可以先构建二进制：
 
 ```bash
 go build -o bin/pageviewer ./cmd/pageviewer
-./bin/pageviewer --url https://example.com --mode html
+./bin/pageviewer --url https://example.com
 ```
 
 查看帮助：
@@ -28,10 +28,10 @@ go run ./cmd/pageviewer --help
 必填参数：
 
 - `--url`：目标 URL
-- `--mode`：输出模式，支持 `html`、`links`、`article`、`raw-text`
 
 可选参数：
 
+- `--mode`：输出模式，支持 `html`、`links`、`article`、`raw-text`，默认 `html`
 - `--json`：输出 JSON
 - `--wait-timeout`：页面等待超时，例如 `15s`
 - `--trace-id`：透传排障 ID
@@ -44,7 +44,8 @@ go run ./cmd/pageviewer --help
 
 `--mode` 的规则：
 
-- 默认必须且只能传入一个 `--mode`
+- 默认不传时使用 `html`
+- 非 JSON 场景最多只能得到一个 mode 结果
 - 启用 `--json` 后允许重复传入 `--mode`
 - 重复传入相同 mode 会报参数错误
 - 不启用 `--json` 时，如果传了多个 `--mode`，会报参数错误
@@ -56,7 +57,7 @@ go run ./cmd/pageviewer --help
 默认输出渲染后的完整 HTML：
 
 ```bash
-go run ./cmd/pageviewer --url https://example.com --mode html
+go run ./cmd/pageviewer --url https://example.com
 ```
 
 `--json` 输出：
@@ -191,7 +192,6 @@ go run ./cmd/pageviewer \
 常见参数错误包括：
 
 - 缺少 `--url`
-- 缺少 `--mode`
 - 非 JSON 场景下传入多个 `--mode`
 - 传入重复的 `--mode`
 - 传入不支持的 mode 值

@@ -69,7 +69,7 @@ _ = html
 CLI 示例：
 
 ```bash
-go run ./cmd/pageviewer --url https://example.com --mode html
+go run ./cmd/pageviewer --url https://example.com
 go run ./cmd/pageviewer --url https://example.com --mode article --json
 go run ./cmd/pageviewer --url https://example.com --json --mode html --mode article
 go run ./cmd/pageviewer --url https://example.com --mode html --trace-id req-123
@@ -78,6 +78,7 @@ go run ./cmd/pageviewer --url https://example.com --mode html --trace-id req-123
 ## 常见使用方式
 
 - `html`：抓取渲染后的完整 HTML
+- 默认不传 `--mode` 时，按 `html` 处理
 - `links`：抓取页面中的文本链接
 - `article`：抓取正文并输出 Markdown
 - `raw-text`：只读取主文档响应，适合文本型接口
