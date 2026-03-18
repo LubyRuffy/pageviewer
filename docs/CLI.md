@@ -35,6 +35,13 @@ go build -o bin/pageviewer ./cmd/pageviewer
 - `--no-headless`：显示浏览器窗口
 - `--devtools`：打开 DevTools
 
+`--mode` 的规则：
+
+- 默认必须且只能传入一个 `--mode`
+- 启用 `--json` 后允许重复传入 `--mode`
+- 重复传入相同 mode 会报参数错误
+- 不启用 `--json` 时，如果传了多个 `--mode`，会报参数错误
+
 ## 输出模式
 
 ### `html`
@@ -49,9 +56,13 @@ go run ./cmd/pageviewer --url https://example.com --mode html
 
 ```json
 {
-  "mode": "html",
+  "modes": ["html"],
   "url": "https://example.com",
-  "content": "<html>...</html>"
+  "results": {
+    "html": {
+      "content": "<html>...</html>"
+    }
+  }
 }
 ```
 
@@ -67,9 +78,13 @@ go run ./cmd/pageviewer --url https://example.com --mode links
 
 ```json
 {
-  "mode": "links",
+  "modes": ["links"],
   "url": "https://example.com",
-  "content": "https://example.com"
+  "results": {
+    "links": {
+      "content": "https://example.com"
+    }
+  }
 }
 ```
 
@@ -81,16 +96,20 @@ go run ./cmd/pageviewer --url https://example.com --mode links
 go run ./cmd/pageviewer --url https://example.com/article --mode article
 ```
 
-`--json` 输出会返回 `mode`、`url` 以及 `ReadabilityArticleWithMarkdown` 的字段，例如：
+`--json` 输出会返回 `modes`、`url` 以及 `results.article` 下的 `ReadabilityArticleWithMarkdown` 字段，例如：
 
 ```json
 {
-  "mode": "article",
+  "modes": ["article"],
   "url": "https://example.com/article",
-  "title": "Example",
-  "markdown": "# Example",
-  "html": "<article>...</article>",
-  "raw_html": "<html>...</html>"
+  "results": {
+    "article": {
+      "title": "Example",
+      "markdown": "# Example",
+      "html": "<article>...</article>",
+      "raw_html": "<html>...</html>"
+    }
+  }
 }
 ```
 
@@ -106,25 +125,69 @@ go run ./cmd/pageviewer --url https://example.com/api --mode raw-text
 
 ```json
 {
-  "mode": "raw-text",
+  "modes": ["raw-text"],
   "url": "https://example.com/api",
-  "body": "{\"ok\":true}",
-  "content_type": "application/json",
-  "status_code": 200,
-  "final_url": "https://example.com/api",
-  "header": {
-    "Content-Type": [
-      "application/json"
-    ]
+  "results": {
+    "raw-text": {
+      "body": "{\"ok\":true}",
+      "content_type": "application/json",
+      "status_code": 200,
+      "final_url": "https://example.com/api",
+      "header": {
+        "Content-Type": [
+          "application/json"
+        ]
+      }
+    }
   }
 }
 ```
+
+## JSON 多模式
+
+启用 `--json` 后，可以重复传入 `--mode`，一次拿到多个结果：
+
+```bash
+go run ./cmd/pageviewer \
+  --url https://example.com \
+  --json \
+  --mode html \
+  --mode article
+```
+
+返回结构：
+
+```json
+{
+  "modes": ["html", "article"],
+  "url": "https://example.com",
+  "results": {
+    "html": {
+      "content": "<html>...</html>"
+    },
+    "article": {
+      "title": "Example",
+      "markdown": "# Example"
+    }
+  }
+}
+```
+
+这个结构的设计目的是方便脚本直接按 `results.html`、`results.article` 做对比分析。
 
 ## 退出码
 
 - `0`：成功
 - `1`：抓取失败、启动 `Client` 失败或关闭 `Client` 失败
 - `2`：参数错误
+
+常见参数错误包括：
+
+- 缺少 `--url`
+- 缺少 `--mode`
+- 非 JSON 场景下传入多个 `--mode`
+- 传入重复的 `--mode`
+- 传入不支持的 mode 值
 
 ## 排障示例
 

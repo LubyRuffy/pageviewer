@@ -71,6 +71,10 @@ CLI 当前支持的配置映射如下：
 - `--remove-invisible-div` -> `pageviewer.WithRemoveInvisibleDiv`
 - `--acquire-timeout` -> `pageviewer.WithAcquireTimeout`
 
+额外规则：
+
+- 如果启用 `--json` 且传入多个 `--mode`，CLI 会自动把 `PoolSize` 和 `Warmup` 提升到 mode 数量，用于并发抓取多个结果
+
 ## 排障建议
 
 - 需要关联上层请求时，优先传入 `--trace-id` 或 `WithTraceID`

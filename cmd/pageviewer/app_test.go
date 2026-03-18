@@ -31,6 +31,38 @@ func TestParseFlagsRejectsInvalidMode(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid --mode")
 }
 
+func TestParseFlagsAllowsRepeatedModesWithJSON(t *testing.T) {
+	opts, err := parseFlags([]string{
+		"--url", "https://example.com",
+		"--json",
+		"--mode", "html",
+		"--mode", "article",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"html", "article"}, opts.modes)
+}
+
+func TestParseFlagsRejectsMultipleModesWithoutJSON(t *testing.T) {
+	_, err := parseFlags([]string{
+		"--url", "https://example.com",
+		"--mode", "html",
+		"--mode", "article",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "multiple --mode values require --json")
+}
+
+func TestParseFlagsRejectsDuplicateModes(t *testing.T) {
+	_, err := parseFlags([]string{
+		"--url", "https://example.com",
+		"--json",
+		"--mode", "html",
+		"--mode", "html",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate --mode: html")
+}
+
 func TestParseFlagsParsesCommonOptions(t *testing.T) {
 	opts, err := parseFlags([]string{
 		"--url", "https://example.com",
@@ -46,7 +78,7 @@ func TestParseFlagsParsesCommonOptions(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "https://example.com", opts.url)
-	assert.Equal(t, "article", opts.mode)
+	assert.Equal(t, []string{"article"}, opts.modes)
 	assert.True(t, opts.jsonOutput)
 	assert.Equal(t, 15*time.Second, opts.waitTimeout)
 	assert.Equal(t, "trace-1", opts.traceID)
@@ -60,7 +92,7 @@ func TestParseFlagsParsesCommonOptions(t *testing.T) {
 func TestBuildConfigMapsBrowserAndRequestOptions(t *testing.T) {
 	opts := cliOptions{
 		url:                "https://example.com",
-		mode:               "html",
+		modes:              []string{"html"},
 		waitTimeout:        12 * time.Second,
 		traceID:            "trace-2",
 		removeInvisibleDiv: true,
@@ -75,6 +107,19 @@ func TestBuildConfigMapsBrowserAndRequestOptions(t *testing.T) {
 	assert.True(t, cfg.NoHeadless)
 	assert.True(t, cfg.DevTools)
 	assert.Len(t, reqOpts, 4)
+}
+
+func TestBuildConfigExpandsPoolForJSONMultiMode(t *testing.T) {
+	opts := cliOptions{
+		url:        "https://example.com",
+		modes:      []string{"html", "links", "raw-text"},
+		jsonOutput: true,
+	}
+
+	cfg, reqOpts := buildConfig(opts)
+	assert.Equal(t, 3, cfg.PoolSize)
+	assert.Equal(t, 3, cfg.Warmup)
+	assert.Empty(t, reqOpts)
 }
 
 func TestRunCLIRendersModes(t *testing.T) {
@@ -121,7 +166,7 @@ func TestRunCLIRendersModes(t *testing.T) {
 	}
 }
 
-func TestRunCLIJSONIncludesModeAndURL(t *testing.T) {
+func TestRunCLIJSONIncludesModesAndResultsForSingleMode(t *testing.T) {
 	original := startClient
 	startClient = func(ctx context.Context, cfg pageviewer.Config) (fetcher, error) {
 		return &fakeFetcher{
@@ -146,22 +191,70 @@ func TestRunCLIJSONIncludesModeAndURL(t *testing.T) {
 	assert.Empty(t, stderr.String())
 
 	var got struct {
-		Mode        string              `json:"mode"`
-		URL         string              `json:"url"`
-		Body        string              `json:"body"`
-		ContentType string              `json:"content_type"`
-		StatusCode  int                 `json:"status_code"`
-		FinalURL    string              `json:"final_url"`
-		Header      map[string][]string `json:"header"`
+		Modes   []string `json:"modes"`
+		URL     string   `json:"url"`
+		Results map[string]struct {
+			Body        string              `json:"body"`
+			ContentType string              `json:"content_type"`
+			StatusCode  int                 `json:"status_code"`
+			FinalURL    string              `json:"final_url"`
+			Header      map[string][]string `json:"header"`
+		} `json:"results"`
 	}
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &got))
-	assert.Equal(t, "raw-text", got.Mode)
+	assert.Equal(t, []string{"raw-text"}, got.Modes)
 	assert.Equal(t, "https://example.com", got.URL)
-	assert.Equal(t, "raw body", got.Body)
-	assert.Equal(t, "text/plain", got.ContentType)
-	assert.Equal(t, 200, got.StatusCode)
-	assert.Equal(t, "https://example.com/final", got.FinalURL)
-	assert.Equal(t, []string{"text/plain"}, got.Header["Content-Type"])
+	assert.Equal(t, "raw body", got.Results["raw-text"].Body)
+	assert.Equal(t, "text/plain", got.Results["raw-text"].ContentType)
+	assert.Equal(t, 200, got.Results["raw-text"].StatusCode)
+	assert.Equal(t, "https://example.com/final", got.Results["raw-text"].FinalURL)
+	assert.Equal(t, []string{"text/plain"}, got.Results["raw-text"].Header["Content-Type"])
+}
+
+func TestRunCLIJSONSupportsMultipleModes(t *testing.T) {
+	original := startClient
+	startClient = func(ctx context.Context, cfg pageviewer.Config) (fetcher, error) {
+		return &fakeFetcher{
+			htmlFn: func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (string, error) {
+				return "<html><body>html</body></html>", nil
+			},
+			articleFn: func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (pageviewer.ReadabilityArticleWithMarkdown, error) {
+				return pageviewer.ReadabilityArticleWithMarkdown{
+					ReadbilityArticle: pageviewer.ReadbilityArticle{Title: "Example"},
+					Markdown:          "# Example",
+				}, nil
+			},
+		}, nil
+	}
+	t.Cleanup(func() { startClient = original })
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := runCLI(context.Background(), []string{
+		"--url", "https://example.com",
+		"--json",
+		"--mode", "html",
+		"--mode", "article",
+	}, &stdout, &stderr)
+	require.Equal(t, 0, code)
+	assert.Empty(t, stderr.String())
+
+	var got struct {
+		Modes   []string `json:"modes"`
+		URL     string   `json:"url"`
+		Results map[string]struct {
+			Content  string `json:"content"`
+			Title    string `json:"title"`
+			Markdown string `json:"markdown"`
+		} `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &got))
+	assert.Equal(t, []string{"html", "article"}, got.Modes)
+	assert.Equal(t, "https://example.com", got.URL)
+	assert.Equal(t, "<html><body>html</body></html>", got.Results["html"].Content)
+	assert.Equal(t, "Example", got.Results["article"].Title)
+	assert.Equal(t, "# Example", got.Results["article"].Markdown)
 }
 
 func TestRunCLIPrintsTraceIDOnFetchError(t *testing.T) {
@@ -226,6 +319,21 @@ func TestRunCLIReturnsTwoOnParameterError(t *testing.T) {
 	require.Equal(t, 2, code)
 	assert.Empty(t, stdout.String())
 	assert.Contains(t, stderr.String(), "--url is required")
+}
+
+func TestRunCLIReturnsTwoOnMultipleModesWithoutJSON(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := runCLI(context.Background(), []string{
+		"--url", "https://example.com",
+		"--mode", "html",
+		"--mode", "article",
+	}, &stdout, &stderr)
+
+	require.Equal(t, 2, code)
+	assert.Empty(t, stdout.String())
+	assert.Contains(t, stderr.String(), "multiple --mode values require --json")
 }
 
 type fakeFetcher struct {

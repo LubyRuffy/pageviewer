@@ -52,11 +52,11 @@ CLI args
 `cmd/pageviewer/app.go` 当前按四层职责组织：
 
 1. `parseFlags`
-   解析 `--url`、`--mode`、`--json`、`--wait-timeout` 等参数
+   解析 `--url`、可重复的 `--mode`、`--json`、`--wait-timeout` 等参数
 2. `buildConfig`
-   把 CLI 参数映射到 `pageviewer.Config` 和请求级 `RequestOption`
+   把 CLI 参数映射到 `pageviewer.Config` 和请求级 `RequestOption`，多 mode JSON 时自动放大 worker 池
 3. `runCLI`
-   启动 `pageviewer.Client` 并按 `mode` 分发到库方法
+   启动 `pageviewer.Client`，在非 JSON 场景按单个 `mode` 分发，在 JSON 场景并发执行多个 `mode` 并聚合结果
 4. `writeJSON` / `writeError` / `writeFetchError`
    负责把成功结果写到标准输出，把错误写到标准错误
 
@@ -66,15 +66,17 @@ CLI args
 
 1. 用户执行 `go run ./cmd/pageviewer --url ... --mode ...`
 2. `parseFlags` 解析并校验参数
-3. `buildConfig` 生成浏览器级配置和请求级选项
+3. `buildConfig` 生成浏览器级配置和请求级选项；多 mode JSON 时自动把 `PoolSize` / `Warmup` 提升到 mode 数量
 4. `runCLI` 调用 `pageviewer.Start(...)`
-5. 根据 `mode` 选择 `HTML`、`Links`、`ReadabilityArticle` 或 `RawText`
-6. 默认模式把主要内容写到标准输出
-7. 如果启用 `--json`，统一用 `json.Encoder` 输出结构化结果
+5. 非 JSON 场景根据单个 `mode` 选择 `HTML`、`Links`、`ReadabilityArticle` 或 `RawText`
+6. JSON 场景按 `modes` 启动多个并发抓取任务，并聚合到 `results`
+7. 默认模式把主要内容写到标准输出
+8. 如果启用 `--json`，统一用 `json.Encoder` 输出 `modes + url + results` 结构
 
 ### 失败路径
 
 1. 参数错误：直接写 `stderr`，返回退出码 `2`
+   例如非 JSON 传入多个 `--mode`
 2. 抓取错误：写 `stderr`，返回退出码 `1`
 3. 如果存在 `--trace-id`，抓取失败时额外输出 `trace_id=<value>`
 

@@ -20,13 +20,13 @@ GOTOOLCHAIN=go1.24.2 go test ./cmd/pageviewer -count=1
 参数解析：
 
 ```bash
-GOTOOLCHAIN=go1.24.2 go test ./cmd/pageviewer -run 'TestParseFlagsRequiresURLAndMode|TestParseFlagsRejectsInvalidMode|TestParseFlagsParsesCommonOptions' -count=1
+GOTOOLCHAIN=go1.24.2 go test ./cmd/pageviewer -run 'TestParseFlagsRequiresURLAndMode|TestParseFlagsRejectsInvalidMode|TestParseFlagsAllowsRepeatedModesWithJSON|TestParseFlagsRejectsMultipleModesWithoutJSON|TestParseFlagsRejectsDuplicateModes|TestParseFlagsParsesCommonOptions' -count=1
 ```
 
 错误处理：
 
 ```bash
-GOTOOLCHAIN=go1.24.2 go test ./cmd/pageviewer -run 'TestRunCLIPrintsTraceIDOnFetchError|TestRunCLIJSONFetchErrorStillWritesStderrOnly|TestRunCLIReturnsTwoOnParameterError' -count=1
+GOTOOLCHAIN=go1.24.2 go test ./cmd/pageviewer -run 'TestRunCLIPrintsTraceIDOnFetchError|TestRunCLIJSONFetchErrorStillWritesStderrOnly|TestRunCLIReturnsTwoOnParameterError|TestRunCLIReturnsTwoOnMultipleModesWithoutJSON' -count=1
 ```
 
 ### 运行全仓测试
@@ -61,6 +61,12 @@ go run ./cmd/pageviewer --url https://example.com --mode article --json
 go run ./cmd/pageviewer --url https://example.com --mode raw-text --json
 ```
 
+多模式 JSON：
+
+```bash
+go run ./cmd/pageviewer --url https://example.com --json --mode html --mode article
+```
+
 排障链路：
 
 ```bash
@@ -73,6 +79,7 @@ go run ./cmd/pageviewer --url https://example.com --mode html --trace-id chat-20
 - 成功结果只允许写标准输出
 - 错误结果只允许写标准错误
 - `--json` 只改变成功结果格式，不改变错误输出策略
+- `--json` 下允许重复传入 `--mode`，非 JSON 下多个 `--mode` 必须返回参数错误
 - 退出码约定：
   - `0`：成功
   - `1`：抓取、启动或关闭失败

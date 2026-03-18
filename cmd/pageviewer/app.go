@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/LubyRuffy/pageviewer"
@@ -14,7 +16,7 @@ import (
 
 type cliOptions struct {
 	url                string
-	mode               string
+	modes              []string
 	jsonOutput         bool
 	waitTimeout        time.Duration
 	traceID            string
@@ -33,23 +35,28 @@ type fetcher interface {
 	RawText(ctx context.Context, url string, opts ...pageviewer.RequestOption) (pageviewer.TextResponse, error)
 }
 
-type outputEnvelope struct {
-	Mode string `json:"mode"`
-	URL  string `json:"url"`
+type modeValues []string
+
+func (m *modeValues) String() string {
+	return strings.Join(*m, ",")
 }
 
-type textOutputEnvelope struct {
-	outputEnvelope
+func (m *modeValues) Set(value string) error {
+	*m = append(*m, value)
+	return nil
+}
+
+type jsonOutputEnvelope struct {
+	Modes   []string       `json:"modes"`
+	URL     string         `json:"url"`
+	Results map[string]any `json:"results"`
+}
+
+type textResult struct {
 	Content string `json:"content"`
 }
 
-type articleOutputEnvelope struct {
-	outputEnvelope
-	pageviewer.ReadabilityArticleWithMarkdown
-}
-
-type rawTextOutputEnvelope struct {
-	outputEnvelope
+type rawTextResult struct {
 	Body        string              `json:"body"`
 	ContentType string              `json:"content_type"`
 	StatusCode  int                 `json:"status_code"`
@@ -66,8 +73,9 @@ func parseFlags(args []string) (cliOptions, error) {
 	fs.SetOutput(io.Discard)
 
 	var opts cliOptions
+	var modes modeValues
 	fs.StringVar(&opts.url, "url", "", "target url")
-	fs.StringVar(&opts.mode, "mode", "", "output mode: html|links|article|raw-text")
+	fs.Var(&modes, "mode", "output mode: html|links|article|raw-text")
 	fs.BoolVar(&opts.jsonOutput, "json", false, "render JSON output")
 	fs.DurationVar(&opts.waitTimeout, "wait-timeout", 0, "page wait timeout")
 	fs.StringVar(&opts.traceID, "trace-id", "", "trace id")
@@ -83,15 +91,33 @@ func parseFlags(args []string) (cliOptions, error) {
 	if opts.url == "" {
 		return cliOptions{}, errors.New("--url is required")
 	}
-	if opts.mode == "" {
+	opts.modes = append(opts.modes, modes...)
+	if len(opts.modes) == 0 {
 		return cliOptions{}, errors.New("--mode is required")
 	}
-	switch opts.mode {
-	case "html", "links", "article", "raw-text":
-	default:
-		return cliOptions{}, fmt.Errorf("invalid --mode: %s", opts.mode)
+	seenModes := make(map[string]struct{}, len(opts.modes))
+	for _, mode := range opts.modes {
+		if err := validateMode(mode); err != nil {
+			return cliOptions{}, err
+		}
+		if _, ok := seenModes[mode]; ok {
+			return cliOptions{}, fmt.Errorf("duplicate --mode: %s", mode)
+		}
+		seenModes[mode] = struct{}{}
+	}
+	if !opts.jsonOutput && len(opts.modes) > 1 {
+		return cliOptions{}, errors.New("multiple --mode values require --json")
 	}
 	return opts, nil
+}
+
+func validateMode(mode string) error {
+	switch mode {
+	case "html", "links", "article", "raw-text":
+		return nil
+	default:
+		return fmt.Errorf("invalid --mode: %s", mode)
+	}
 }
 
 func buildConfig(opts cliOptions) (pageviewer.Config, []pageviewer.RequestOption) {
@@ -99,6 +125,10 @@ func buildConfig(opts cliOptions) (pageviewer.Config, []pageviewer.RequestOption
 	cfg.Proxy = opts.proxy
 	cfg.NoHeadless = opts.noHeadless
 	cfg.DevTools = opts.devTools
+	if opts.jsonOutput && len(opts.modes) > 1 {
+		cfg.PoolSize = len(opts.modes)
+		cfg.Warmup = len(opts.modes)
+	}
 
 	reqOpts := make([]pageviewer.RequestOption, 0, 4)
 	if opts.waitTimeout > 0 {
@@ -136,17 +166,19 @@ func runCLI(ctx context.Context, args []string, stdout io.Writer, stderr io.Writ
 		}
 	}()
 
-	switch opts.mode {
+	if opts.jsonOutput {
+		return runJSONModes(ctx, client, opts, reqOpts, stdout, stderr)
+	}
+
+	return runTextMode(ctx, client, opts, reqOpts, stdout, stderr)
+}
+
+func runTextMode(ctx context.Context, client fetcher, opts cliOptions, reqOpts []pageviewer.RequestOption, stdout io.Writer, stderr io.Writer) int {
+	switch opts.modes[0] {
 	case "html":
 		content, err := client.HTML(ctx, opts.url, reqOpts...)
 		if err != nil {
 			return writeFetchError(stderr, err, opts.traceID)
-		}
-		if opts.jsonOutput {
-			return writeJSON(stdout, stderr, textOutputEnvelope{
-				outputEnvelope: outputEnvelope{Mode: opts.mode, URL: opts.url},
-				Content:        content,
-			})
 		}
 		_, _ = fmt.Fprint(stdout, content)
 		return 0
@@ -155,24 +187,12 @@ func runCLI(ctx context.Context, args []string, stdout io.Writer, stderr io.Writ
 		if err != nil {
 			return writeFetchError(stderr, err, opts.traceID)
 		}
-		if opts.jsonOutput {
-			return writeJSON(stdout, stderr, textOutputEnvelope{
-				outputEnvelope: outputEnvelope{Mode: opts.mode, URL: opts.url},
-				Content:        content,
-			})
-		}
 		_, _ = fmt.Fprint(stdout, content)
 		return 0
 	case "article":
 		article, err := client.ReadabilityArticle(ctx, opts.url, reqOpts...)
 		if err != nil {
 			return writeFetchError(stderr, err, opts.traceID)
-		}
-		if opts.jsonOutput {
-			return writeJSON(stdout, stderr, articleOutputEnvelope{
-				outputEnvelope:                 outputEnvelope{Mode: opts.mode, URL: opts.url},
-				ReadabilityArticleWithMarkdown: article,
-			})
 		}
 		_, _ = fmt.Fprint(stdout, article.Markdown)
 		return 0
@@ -181,20 +201,83 @@ func runCLI(ctx context.Context, args []string, stdout io.Writer, stderr io.Writ
 		if err != nil {
 			return writeFetchError(stderr, err, opts.traceID)
 		}
-		if opts.jsonOutput {
-			return writeJSON(stdout, stderr, rawTextOutputEnvelope{
-				outputEnvelope: outputEnvelope{Mode: opts.mode, URL: opts.url},
-				Body:           text.Body,
-				ContentType:    text.ContentType,
-				StatusCode:     text.StatusCode,
-				FinalURL:       text.FinalURL,
-				Header:         text.Header,
-			})
-		}
 		_, _ = fmt.Fprint(stdout, text.Body)
 		return 0
 	default:
-		return writeFetchError(stderr, fmt.Errorf("invalid --mode: %s", opts.mode), opts.traceID)
+		return writeFetchError(stderr, fmt.Errorf("invalid --mode: %s", opts.modes[0]), opts.traceID)
+	}
+}
+
+func runJSONModes(ctx context.Context, client fetcher, opts cliOptions, reqOpts []pageviewer.RequestOption, stdout io.Writer, stderr io.Writer) int {
+	type modeRun struct {
+		mode   string
+		result any
+		err    error
+	}
+
+	resultsCh := make(chan modeRun, len(opts.modes))
+	var wg sync.WaitGroup
+
+	for _, mode := range opts.modes {
+		wg.Add(1)
+		go func(mode string) {
+			defer wg.Done()
+			result, err := fetchModeResult(ctx, client, opts.url, mode, reqOpts)
+			resultsCh <- modeRun{mode: mode, result: result, err: err}
+		}(mode)
+	}
+	wg.Wait()
+	close(resultsCh)
+
+	results := make(map[string]any, len(opts.modes))
+	for result := range resultsCh {
+		if result.err != nil {
+			return writeFetchError(stderr, result.err, opts.traceID)
+		}
+		results[result.mode] = result.result
+	}
+
+	return writeJSON(stdout, stderr, jsonOutputEnvelope{
+		Modes:   append([]string(nil), opts.modes...),
+		URL:     opts.url,
+		Results: results,
+	})
+}
+
+func fetchModeResult(ctx context.Context, client fetcher, url, mode string, reqOpts []pageviewer.RequestOption) (any, error) {
+	switch mode {
+	case "html":
+		content, err := client.HTML(ctx, url, reqOpts...)
+		if err != nil {
+			return nil, err
+		}
+		return textResult{Content: content}, nil
+	case "links":
+		content, err := client.Links(ctx, url, reqOpts...)
+		if err != nil {
+			return nil, err
+		}
+		return textResult{Content: content}, nil
+	case "article":
+		article, err := client.ReadabilityArticle(ctx, url, reqOpts...)
+		if err != nil {
+			return nil, err
+		}
+		return article, nil
+	case "raw-text":
+		text, err := client.RawText(ctx, url, reqOpts...)
+		if err != nil {
+			return nil, err
+		}
+		return rawTextResult{
+			Body:        text.Body,
+			ContentType: text.ContentType,
+			StatusCode:  text.StatusCode,
+			FinalURL:    text.FinalURL,
+			Header:      text.Header,
+		}, nil
+	default:
+		return nil, fmt.Errorf("invalid --mode: %s", mode)
 	}
 }
 

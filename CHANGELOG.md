@@ -16,6 +16,7 @@
 
 - 更新 [`README.md`](README.md)，补充 CLI 快速启动、使用示例和常见使用方式
 - 明确 CLI 的退出码和排障链路文档
+- `--json` 输出统一为 `modes + url + results` 结构，并支持重复传入 `--mode` 一次获取多个结果
 
 ### Fixed
 

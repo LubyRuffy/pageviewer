@@ -65,7 +65,7 @@ CLI 示例：
 ```bash
 go run ./cmd/pageviewer --url https://example.com --mode html
 go run ./cmd/pageviewer --url https://example.com --mode article --json
-go run ./cmd/pageviewer --url https://example.com --mode raw-text --json
+go run ./cmd/pageviewer --url https://example.com --json --mode html --mode article
 go run ./cmd/pageviewer --url https://example.com --mode html --trace-id req-123
 ```
 
@@ -75,7 +75,7 @@ go run ./cmd/pageviewer --url https://example.com --mode html --trace-id req-123
 - `links`：抓取页面中的文本链接
 - `article`：抓取正文并输出 Markdown
 - `raw-text`：只读取主文档响应，适合文本型接口
-- `--json`：输出结构化结果，便于脚本和程序消费
+- `--json`：输出结构化结果，并支持重复传入 `--mode` 一次拿到多种结果
 - `--trace-id`：把一次交互 ID 传入请求，便于失败后追踪
 - 参数、输出结构和退出码详见 [docs/CLI.md](docs/CLI.md)
 
