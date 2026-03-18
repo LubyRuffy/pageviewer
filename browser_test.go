@@ -53,7 +53,8 @@ func TestBrowser_WithIgnoreCertErrors(t *testing.T) {
 	// 共享的标准浏览器不应忽略无效证书
 	b := sharedTestBrowser(t)
 
-	vo := NewVisitOptions(WithWaitTimeout(time.Second * 20)).PageOptions
+	vo := newDefaultVisitOptions().PageOptions
+	vo.waitTimeout = 20 * time.Second
 
 	var html string
 	err := b.Run(s.URL, func(page *rod.Page) error {
@@ -62,10 +63,11 @@ func TestBrowser_WithIgnoreCertErrors(t *testing.T) {
 	}, vo)
 	assert.Error(t, err)
 
-	b, err = NewBrowser(WithIgnoreCertErrors(true))
+	b, err = NewBrowser(WithIgnoreCertErrors(true), WithLeakless(false))
 	assert.NoError(t, err)
 	defer b.Close()
-	vo = NewVisitOptions(WithWaitTimeout(time.Second * 20)).PageOptions
+	vo = newDefaultVisitOptions().PageOptions
+	vo.waitTimeout = 20 * time.Second
 
 	err = b.Run(s.URL, func(page *rod.Page) error {
 		html = page.MustHTML()
@@ -90,7 +92,9 @@ func TestBrowser_RemoveInvisibleElements(t *testing.T) {
 </html>`))
 	}))
 	var html string
-	vo := NewVisitOptions(WithWaitTimeout(time.Second*20), WithRemoveInvisibleDiv(true)).PageOptions
+	vo := newDefaultVisitOptions().PageOptions
+	vo.waitTimeout = 20 * time.Second
+	vo.removeInvisibleDiv = true
 	b := sharedTestBrowser(t)
 
 	err := b.Run(s.URL, func(page *rod.Page) error {
@@ -122,7 +126,9 @@ func TestBrowser_HTML_longtime(t *testing.T) {
 	defer s.Close()
 
 	browser := sharedTestBrowser(t)
-	html, err := browser.HTML(s.URL, NewVisitOptions(WithWaitTimeout(time.Second*5)).PageOptions)
+	vo := newDefaultVisitOptions().PageOptions
+	vo.waitTimeout = 5 * time.Second
+	html, err := browser.HTML(s.URL, vo)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, html)
 	assert.Contains(t, html, "slow but local")

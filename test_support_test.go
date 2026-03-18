@@ -3,11 +3,15 @@ package pageviewer
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"os"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-rod/rod/lib/defaults"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,7 +21,13 @@ var (
 	sharedBrowserErr  error
 )
 
+const testBrowserLockPortEnv = "PAGEVIEWER_TEST_BROWSER_LOCK_PORT"
+
 func TestMain(m *testing.M) {
+	if err := configureTestBrowserLockPort(); err != nil {
+		panic(err)
+	}
+
 	DefaultWaitStableTimeout = 750 * time.Millisecond
 	browserWaitLoadTimeoutCap = 750 * time.Millisecond
 	browserWaitIdleTimeoutCap = 100 * time.Millisecond
@@ -36,11 +46,58 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func configureTestBrowserLockPort() error {
+	port, err := configuredTestBrowserLockPort()
+	if err != nil {
+		return err
+	}
+	defaults.LockPort = port
+	return nil
+}
+
+func configuredTestBrowserLockPort() (int, error) {
+	if value := os.Getenv(testBrowserLockPortEnv); value != "" {
+		port, err := strconv.Atoi(value)
+		if err != nil {
+			return 0, fmt.Errorf("parse %s: %w", testBrowserLockPortEnv, err)
+		}
+		return port, nil
+	}
+
+	port, err := pickTestBrowserLockPort(defaults.LockPort)
+	if err != nil {
+		return 0, err
+	}
+	if err := os.Setenv(testBrowserLockPortEnv, strconv.Itoa(port)); err != nil {
+		return 0, err
+	}
+	return port, nil
+}
+
+func pickTestBrowserLockPort(preferred int) (int, error) {
+	if preferred > 0 {
+		listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", preferred))
+		if err == nil {
+			port := listener.Addr().(*net.TCPAddr).Port
+			_ = listener.Close()
+			return port, nil
+		}
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	_ = listener.Close()
+	return port, nil
+}
+
 func sharedTestBrowser(t *testing.T) *Browser {
 	t.Helper()
 
 	sharedBrowserOnce.Do(func() {
-		sharedBrowserBase, sharedBrowserErr = NewBrowser()
+		sharedBrowserBase, sharedBrowserErr = NewBrowser(WithLeakless(false))
 	})
 
 	require.NoError(t, sharedBrowserErr)
@@ -90,4 +147,23 @@ func newTestClient(t *testing.T, cfg Config) *Client {
 	})
 
 	return client
+}
+
+func TestPickTestBrowserLockPortFallsBackWhenPreferredPortIsOccupied(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+
+	occupiedPort := listener.Addr().(*net.TCPAddr).Port
+	port, err := pickTestBrowserLockPort(occupiedPort)
+	require.NoError(t, err)
+	require.NotEqual(t, occupiedPort, port)
+}
+
+func TestPickTestBrowserLockPortUsesConfiguredEnv(t *testing.T) {
+	t.Setenv(testBrowserLockPortEnv, "43123")
+
+	port, err := configuredTestBrowserLockPort()
+	require.NoError(t, err)
+	require.Equal(t, 43123, port)
 }

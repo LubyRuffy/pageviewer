@@ -2,10 +2,12 @@ package pageviewer
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -20,6 +22,7 @@ const (
 	browserCleanupUserDataDirEnv   = "PAGEVIEWER_BROWSER_CLEANUP_USER_DATA_DIR"
 	browserCleanupWaitTimeout      = 10 * time.Second
 	browserCleanupWaitPollInterval = 100 * time.Millisecond
+	leaklessDefaultLockPort        = 2978
 )
 
 type processMatch struct {
@@ -31,6 +34,7 @@ func TestNewBrowser_ChildExitDoesNotLeakChromium(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows 下未实现基于 ps 的进程命令行断言")
 	}
+	skipIfLeaklessLockPortBusy(t)
 
 	if os.Getenv(browserCleanupHelperEnv) == "1" {
 		require.NoError(t, runBrowserCleanupHelper(os.Getenv(browserCleanupUserDataDirEnv), false))
@@ -48,7 +52,17 @@ func TestNewBrowser_ChildExitDoesNotLeakChromium(t *testing.T) {
 		fmt.Sprintf("%s=%s", browserCleanupUserDataDirEnv, userDataDir),
 	)
 
-	output, err := cmd.CombinedOutput()
+	outputPath := filepath.Join(t.TempDir(), "child-output.log")
+	outputFile, err := os.Create(outputPath)
+	require.NoError(t, err)
+
+	cmd.Stdout = outputFile
+	cmd.Stderr = outputFile
+	err = cmd.Run()
+	require.NoError(t, outputFile.Close())
+
+	output, readErr := os.ReadFile(outputPath)
+	require.NoError(t, readErr)
 	require.NoError(t, err, string(output))
 
 	var (
@@ -59,6 +73,17 @@ func TestNewBrowser_ChildExitDoesNotLeakChromium(t *testing.T) {
 		remaining, findErr = findProcessesWithArg(userDataDir)
 		return findErr == nil && len(remaining) == 0
 	}, browserCleanupWaitTimeout, browserCleanupWaitPollInterval, "child 退出后仍有 Chromium 残留: err=%v, output=%s, remaining=%v", findErr, string(output), remaining)
+}
+
+func skipIfLeaklessLockPortBusy(t *testing.T) {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", leaklessDefaultLockPort))
+	if err != nil {
+		t.Skipf("跳过 leakless 子进程退出测试：默认锁端口 %d 被外部进程占用: %v", leaklessDefaultLockPort, err)
+		return
+	}
+	require.NoError(t, listener.Close())
 }
 
 func TestBrowser_CloseStopsManagedChromium(t *testing.T) {
@@ -76,10 +101,13 @@ func TestBrowser_CloseStopsManagedChromium(t *testing.T) {
 	}))
 	defer server.Close()
 
-	browser, err := NewBrowser(WithUserDataDir(userDataDir))
+	browser, err := NewBrowser(WithUserDataDir(userDataDir), WithLeakless(false))
 	require.NoError(t, err)
 
-	_, err = browser.HTML(server.URL, NewVisitOptions(WithWaitTimeout(10*time.Second)).PageOptions)
+	po := newDefaultVisitOptions().PageOptions
+	po.waitTimeout = 10 * time.Second
+
+	_, err = browser.HTML(server.URL, po)
 	require.NoError(t, err)
 	require.NoError(t, browser.Close())
 

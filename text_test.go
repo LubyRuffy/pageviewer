@@ -104,6 +104,13 @@ func TestClientRawText_ContextDeadlineCancelsBlockedNavigation(t *testing.T) {
 	}))
 	defer server.Close()
 
+	replaceClientFactories(t,
+		func(Config) (*Browser, error) {
+			return NewBrowser(WithLeakless(false))
+		},
+		newWarmWorker,
+	)
+
 	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
 	require.NoError(t, err)
 	defer func() {

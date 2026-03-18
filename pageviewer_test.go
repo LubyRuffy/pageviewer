@@ -27,7 +27,7 @@ func resetDefaultBrowserForTest(t *testing.T) {
 }
 
 func TestGetBrowser(t *testing.T) {
-	browser, err := NewBrowser()
+	browser, err := NewBrowser(WithLeakless(false))
 	assert.NoError(t, err)
 	if browser != nil {
 		defer browser.Close()
@@ -67,6 +67,10 @@ func TestGetPage(t *testing.T) {
 
 func TestVisit(t *testing.T) {
 	resetDefaultBrowserForTest(t)
+
+	browser, err := NewBrowser(WithLeakless(false))
+	require.NoError(t, err)
+	defaultBrowser = browser
 
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`<html><body><div id="app">ok</div></body></html>`))
