@@ -355,7 +355,7 @@ func (c *Client) visitWithOptions(ctx context.Context, url string, ro RequestOpt
 		}
 	}()
 
-	response, pageBroken, err := c.browser.runPage(worker.page, url, ro.pageOptions(), func(page *rod.Page, response *proto.NetworkResponseReceived) error {
+	response, pageBroken, err := c.browser.runPage(ctx, worker.page, url, ro.pageOptions(), func(page *rod.Page, response *proto.NetworkResponseReceived) error {
 		return onPageLoad(page, response)
 	})
 	trace.setResponse(response)

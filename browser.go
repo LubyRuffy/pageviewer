@@ -192,7 +192,7 @@ func (b *Browser) waitPageReady(u string, po *PageOptions) (*rod.Page, error) {
 		return nil, err
 	}
 
-	if _, err := b.navigatePage(page, u, po); err != nil {
+	if _, err := b.navigatePage(context.Background(), page, u, po); err != nil {
 		_ = page.Close()
 		return nil, err
 	}
@@ -203,7 +203,11 @@ func newUnsupportedDOMContentError(u, mimeType string) error {
 	return fmt.Errorf("%w: no html content:%s. The url's MIMEType is:%s", ErrUnsupportedContentType, u, mimeType)
 }
 
-func waitForMainDocumentResponse(page *rod.Page, includeBody bool) (func() (documentResponseResult, error), func()) {
+func waitForMainDocumentResponse(ctx context.Context, page *rod.Page, includeBody bool) (func() (documentResponseResult, error), func()) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	waitPage, cancel := page.WithCancel()
 	resultCh := make(chan documentResponseResult, 1)
 	done := make(chan struct{})
@@ -245,22 +249,28 @@ func waitForMainDocumentResponse(page *rod.Page, includeBody bool) (func() (docu
 	}()
 
 	return func() (documentResponseResult, error) {
-			result := <-resultCh
-			return result, result.err
+			select {
+			case <-ctx.Done():
+				cancel()
+				<-done
+				return documentResponseResult{}, ctx.Err()
+			case result := <-resultCh:
+				return result, result.err
+			}
 		}, func() {
 			cancel()
 			<-done
 		}
 }
 
-func (b *Browser) navigatePage(page *rod.Page, u string, po *PageOptions) (*proto.NetworkResponseReceived, error) {
+func (b *Browser) navigatePage(ctx context.Context, page *rod.Page, u string, po *PageOptions) (*proto.NetworkResponseReceived, error) {
 	if po.beforeRequest != nil {
 		if err := po.beforeRequest(page); err != nil {
 			return nil, err
 		}
 	}
 
-	waitDocument, stopWaiting := waitForMainDocumentResponse(page, false)
+	waitDocument, stopWaiting := waitForMainDocumentResponse(ctx, page, false)
 	defer stopWaiting()
 
 	if err := page.Navigate(u); err != nil {
@@ -286,7 +296,7 @@ func (b *Browser) navigatePage(page *rod.Page, u string, po *PageOptions) (*prot
 	return response, nil
 }
 
-func (b *Browser) navigateTextPage(page *rod.Page, u string, po *PageOptions) (documentResponseResult, error) {
+func (b *Browser) navigateTextPage(ctx context.Context, page *rod.Page, u string, po *PageOptions) (documentResponseResult, error) {
 	if po.beforeRequest != nil {
 		if err := po.beforeRequest(page); err != nil {
 			return documentResponseResult{}, err
@@ -299,7 +309,7 @@ func (b *Browser) navigateTextPage(page *rod.Page, u string, po *PageOptions) (d
 	}
 	defer stopBlocker()
 
-	waitDocument, stopWaiting := waitForMainDocumentResponse(page, true)
+	waitDocument, stopWaiting := waitForMainDocumentResponse(ctx, page, true)
 	defer stopWaiting()
 
 	if err := page.Navigate(u); err != nil {
@@ -422,7 +432,7 @@ func removeInvisibleElements(page *rod.Page) error {
 	return err
 }
 
-func (b *Browser) runPage(page *rod.Page, u string, po *PageOptions, onPageLoad func(page *rod.Page, response *proto.NetworkResponseReceived) error) (response *proto.NetworkResponseReceived, pageBroken bool, err error) {
+func (b *Browser) runPage(ctx context.Context, page *rod.Page, u string, po *PageOptions, onPageLoad func(page *rod.Page, response *proto.NetworkResponseReceived) error) (response *proto.NetworkResponseReceived, pageBroken bool, err error) {
 	defer func() {
 		if val := recover(); val != nil {
 			if val != nil {
@@ -443,7 +453,7 @@ func (b *Browser) runPage(page *rod.Page, u string, po *PageOptions, onPageLoad 
 		po = newDefaultVisitOptions().PageOptions
 	}
 
-	response, e := b.navigatePage(page, u, po)
+	response, e := b.navigatePage(ctx, page, u, po)
 	if e != nil {
 		return response, true, e
 	}
@@ -466,7 +476,7 @@ func (b *Browser) runWithResponse(u string, po *PageOptions, onPageLoad func(pag
 	}
 	defer page.Close()
 
-	_, _, err = b.runPage(page, u, po, onPageLoad)
+	_, _, err = b.runPage(context.Background(), page, u, po, onPageLoad)
 	return err
 }
 

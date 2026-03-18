@@ -13,6 +13,7 @@
 - 支持移除不可见内容 `WithRemoveInvisibleDiv`
 - 支持通过 `WithTraceID` + `DebugTrace` 做最近请求排障
 - 页面稳定等待会尽量容忍 `WaitLoad` / `WaitIdle` / `WaitDOMStable` 的超时，降低慢页面误报
+- 请求 `ctx` 的取消和 deadline 会继续传播到主文档响应等待阶段，避免主文档完成事件缺失时无限挂起
 
 ## 快速启动
 
@@ -84,6 +85,7 @@ go run ./cmd/pageviewer --url https://example.com --mode html --trace-id req-123
 - `links`：抓取页面中的文本链接
 - `article`：抓取正文并输出 Markdown
 - `raw-text`：只读取主文档响应，并阻断图片、样式、字体等子资源请求，适合文本型接口或轻量抓取 HTML
+- `ctx`：如果上层传入了取消或 deadline，主文档响应等待阶段也会尽快返回 `ctx.Err()`
 - `--json`：输出结构化结果，并支持重复传入 `--mode` 一次拿到多种结果
 - `--trace-id`：把一次交互 ID 传入请求，便于失败后追踪
 - 参数、输出结构和退出码详见 [docs/CLI.md](docs/CLI.md)

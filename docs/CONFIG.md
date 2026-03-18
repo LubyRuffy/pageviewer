@@ -50,6 +50,7 @@ client, err := pageviewer.Start(ctx, pageviewer.Config{
 请求行为补充：
 
 - `RawText` 会默认阻断主文档之外的子资源请求，例如图片、样式、字体、脚本和其他二进制资源
+- 调用方 `ctx` 的取消和 deadline 会传播到主文档响应等待阶段；如果主文档完成事件缺失，请求会返回 `context.Canceled` 或 `context.DeadlineExceeded`
 
 示例：
 

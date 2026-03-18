@@ -26,6 +26,7 @@ CLI args
 - 负责页面创建、导航、稳定等待和正文抽取
 - 提供 `HTML`、`Links`、`ReadabilityArticle`、`RawText` 等底层访问能力
 - `RawText` 导航时只放行主文档请求，用于轻量抓取文本型响应
+- 主文档响应等待阶段显式监听调用方 `ctx`，避免底层事件缺失时无限阻塞
 
 ### `client.go`
 

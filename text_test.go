@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,4 +83,64 @@ func TestClientRawTextBlocksSubresourcesForHTMLDocuments(t *testing.T) {
 	assert.Contains(t, resp.Body, "<h1>hello</h1>")
 	assert.Zero(t, styleRequests.Load())
 	assert.Zero(t, imageRequests.Load())
+}
+
+func TestClientRawText_ContextDeadlineCancelsBlockedNavigation(t *testing.T) {
+	requestStarted := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<html><body><p>partial"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+
+		select {
+		case requestStarted <- struct{}{}:
+		default:
+		}
+
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
+	require.NoError(t, err)
+	defer func() {
+		err := client.closeResources()
+		if err != nil && err != context.Canceled {
+			require.NoError(t, err)
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	resultCh := make(chan error, 1)
+	go func() {
+		_, err := client.RawText(ctx, server.URL)
+		resultCh <- err
+	}()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(time.Second):
+		t.Fatal("expected raw-text request to start")
+	}
+
+	select {
+	case err := <-resultCh:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(200 * time.Millisecond):
+		err := client.closeResources()
+		if err != nil && err != context.Canceled {
+			require.NoError(t, err)
+		}
+		select {
+		case <-resultCh:
+		case <-time.After(time.Second):
+			t.Fatal("RawText remained blocked after forced cleanup")
+		}
+		t.Fatal("RawText did not return after context deadline")
+	}
 }

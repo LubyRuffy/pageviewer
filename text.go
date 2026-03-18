@@ -59,7 +59,7 @@ func (c *Client) RawText(ctx context.Context, url string, opts ...RequestOption)
 	po := ro.pageOptions()
 	po.blockSubresources = true
 
-	result, err := c.browser.navigateTextPage(worker.page, url, po)
+	result, err := c.browser.navigateTextPage(ctx, worker.page, url, po)
 	trace.setResponse(result.response)
 	if err != nil {
 		state = workerStateBroken
