@@ -27,6 +27,7 @@ CLI args
 - 提供 `HTML`、`Links`、`ReadabilityArticle`、`RawText` 等底层访问能力
 - `RawText` 导航时只放行主文档请求，用于轻量抓取文本型响应
 - 主文档响应等待阶段显式监听调用方 `ctx`，避免底层事件缺失时无限阻塞
+- 托管浏览器启动优先使用 leakless；如果 upstream 固定锁端口不可用，则快速降级为非 leakless，避免启动阶段无限阻塞
 
 ### `client.go`
 

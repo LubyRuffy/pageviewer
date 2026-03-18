@@ -12,6 +12,7 @@
 - 支持请求前回调 `WithBeforeRequest`
 - 支持移除不可见内容 `WithRemoveInvisibleDiv`
 - 支持通过 `WithTraceID` + `DebugTrace` 做最近请求排障
+- 托管浏览器默认优先启用 leakless；如果 upstream 固定锁端口不可用，会快速降级为非 leakless，避免启动阶段无限挂起
 - 页面稳定等待会尽量容忍 `WaitLoad` / `WaitIdle` / `WaitDOMStable` 的超时，降低慢页面误报
 - 请求 `ctx` 的取消和 deadline 会继续传播到主文档响应等待阶段，避免主文档完成事件缺失时无限挂起
 

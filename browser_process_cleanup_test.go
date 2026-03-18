@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 const (
 	browserCleanupHelperEnv        = "PAGEVIEWER_BROWSER_CLEANUP_HELPER"
 	browserCleanupUserDataDirEnv   = "PAGEVIEWER_BROWSER_CLEANUP_USER_DATA_DIR"
+	browserCleanupPIDFileEnv       = "PAGEVIEWER_BROWSER_CLEANUP_PID_FILE"
 	browserCleanupWaitTimeout      = 10 * time.Second
 	browserCleanupWaitPollInterval = 100 * time.Millisecond
 	leaklessDefaultLockPort        = 2978
@@ -37,7 +39,11 @@ func TestNewBrowser_ChildExitDoesNotLeakChromium(t *testing.T) {
 	skipIfLeaklessLockPortBusy(t)
 
 	if os.Getenv(browserCleanupHelperEnv) == "1" {
-		require.NoError(t, runBrowserCleanupHelper(os.Getenv(browserCleanupUserDataDirEnv), false))
+		require.NoError(t, runBrowserCleanupHelper(
+			os.Getenv(browserCleanupUserDataDirEnv),
+			os.Getenv(browserCleanupPIDFileEnv),
+			false,
+		))
 		return
 	}
 
@@ -50,7 +56,10 @@ func TestNewBrowser_ChildExitDoesNotLeakChromium(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("%s=1", browserCleanupHelperEnv),
 		fmt.Sprintf("%s=%s", browserCleanupUserDataDirEnv, userDataDir),
+		fmt.Sprintf("%s=%s", browserCleanupPIDFileEnv, filepath.Join(t.TempDir(), "browser.pid")),
 	)
+
+	pidFilePath := envValue(cmd.Env, browserCleanupPIDFileEnv)
 
 	outputPath := filepath.Join(t.TempDir(), "child-output.log")
 	outputFile, err := os.Create(outputPath)
@@ -65,14 +74,19 @@ func TestNewBrowser_ChildExitDoesNotLeakChromium(t *testing.T) {
 	require.NoError(t, readErr)
 	require.NoError(t, err, string(output))
 
-	var (
-		remaining []processMatch
-		findErr   error
-	)
+	browserPID, err := readPIDFile(pidFilePath)
+	require.NoError(t, err)
+	require.Positive(t, browserPID)
+
+	var pidExistsErr error
 	assert.Eventually(t, func() bool {
-		remaining, findErr = findProcessesWithArg(userDataDir)
-		return findErr == nil && len(remaining) == 0
-	}, browserCleanupWaitTimeout, browserCleanupWaitPollInterval, "child 退出后仍有 Chromium 残留: err=%v, output=%s, remaining=%v", findErr, string(output), remaining)
+		exists, existsErr := processTreeExists(browserPID)
+		pidExistsErr = existsErr
+		if existsErr != nil {
+			return false
+		}
+		return !exists
+	}, browserCleanupWaitTimeout, browserCleanupWaitPollInterval, "child 退出后浏览器进程仍未退出: pid=%d, err=%v, output=%s", browserPID, pidExistsErr, string(output))
 }
 
 func skipIfLeaklessLockPortBusy(t *testing.T) {
@@ -129,7 +143,7 @@ func TestNewBrowser_WithLeaklessOption(t *testing.T) {
 	require.False(t, opts.Leakless)
 }
 
-func runBrowserCleanupHelper(userDataDir string, closeBrowser bool) error {
+func runBrowserCleanupHelper(userDataDir, pidFilePath string, closeBrowser bool) error {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`<html><body><div>ok</div></body></html>`))
 	}))
@@ -137,6 +151,9 @@ func runBrowserCleanupHelper(userDataDir string, closeBrowser bool) error {
 
 	browser, err := NewBrowser(WithUserDataDir(userDataDir))
 	if err != nil {
+		return err
+	}
+	if err := writePIDFile(pidFilePath, browser.launcher.PID()); err != nil {
 		return err
 	}
 
@@ -150,6 +167,31 @@ func runBrowserCleanupHelper(userDataDir string, closeBrowser bool) error {
 	}
 
 	return nil
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
+}
+
+func writePIDFile(path string, pid int) error {
+	if path == "" {
+		return nil
+	}
+	return os.WriteFile(path, []byte(strconv.Itoa(pid)), 0o600)
+}
+
+func readPIDFile(path string) (int, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(raw)))
 }
 
 func findProcessesWithArg(arg string) ([]processMatch, error) {

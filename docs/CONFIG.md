@@ -25,6 +25,12 @@
 - `UserModeBrowser`：复用用户浏览器
 - `RemoteDebuggingPort`：指定远程调试端口
 
+浏览器启动补充：
+
+- 默认会优先启用 leakless
+- 如果 upstream leakless 的固定锁端口不可用，`NewBrowser` 会快速降级为非 leakless，避免启动阶段无限等待
+- 如果你需要显式关闭 leakless，可使用 `WithLeakless(false)`
+
 示例：
 
 ```go

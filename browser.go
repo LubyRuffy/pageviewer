@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/LubyRuffy/pageviewer/js"
+	"net"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -29,7 +30,11 @@ var (
 	browserWaitIdleTimeoutCap        = 5 * time.Second
 	browserWaitRequestIdleTimeoutCap = 500 * time.Millisecond
 	browserWaitDOMStableTimeoutCap   = 2 * time.Second
+	browserLeaklessLockWaitTimeout   = 500 * time.Millisecond
+	browserLeaklessLockPollInterval  = 25 * time.Millisecond
 )
+
+const browserLeaklessDefaultLockPort = 2978
 
 type PageOptions struct {
 	waitTimeout        time.Duration              // 等待超时的设置
@@ -668,6 +673,34 @@ func collectLinks(page *rod.Page) (string, error) {
 	return strings.Join(links, "\n"), nil
 }
 
+func resolveLeaklessEnabled(requested bool, lockPort int, timeout time.Duration, pollInterval time.Duration) bool {
+	if !requested {
+		return false
+	}
+	if lockPort <= 0 {
+		lockPort = browserLeaklessDefaultLockPort
+	}
+	if timeout <= 0 {
+		timeout = browserLeaklessLockWaitTimeout
+	}
+	if pollInterval <= 0 {
+		pollInterval = browserLeaklessLockPollInterval
+	}
+
+	deadline := time.Now().Add(timeout)
+	for {
+		listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", lockPort))
+		if err == nil {
+			_ = listener.Close()
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(pollInterval)
+	}
+}
+
 // NewBrowser 初始化浏览器
 func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 	// 参数配置
@@ -688,6 +721,12 @@ func NewBrowser(opts ...BrowserOption) (*Browser, error) {
 	if bo.LeaklessSet {
 		leaklessEnabled = bo.Leakless
 	}
+	leaklessEnabled = resolveLeaklessEnabled(
+		leaklessEnabled,
+		browserLeaklessDefaultLockPort,
+		browserLeaklessLockWaitTimeout,
+		browserLeaklessLockPollInterval,
+	)
 
 	l = l.Leakless(leaklessEnabled).
 		Delete("enable-automation").

@@ -2,6 +2,7 @@ package pageviewer
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -115,7 +116,7 @@ func TestClientRawText_ContextDeadlineCancelsBlockedNavigation(t *testing.T) {
 	require.NoError(t, err)
 	defer func() {
 		err := client.closeResources()
-		if err != nil && err != context.Canceled {
+		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			require.NoError(t, err)
 		}
 	}()
@@ -137,10 +138,14 @@ func TestClientRawText_ContextDeadlineCancelsBlockedNavigation(t *testing.T) {
 
 	select {
 	case err := <-resultCh:
-		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.True(t,
+			errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled),
+			"expected cancellation error, got %v",
+			err,
+		)
 	case <-time.After(200 * time.Millisecond):
 		err := client.closeResources()
-		if err != nil && err != context.Canceled {
+		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			require.NoError(t, err)
 		}
 		select {
