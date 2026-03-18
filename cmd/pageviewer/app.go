@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -79,7 +80,7 @@ Modes:
   raw-text   Main document raw text response
 
 Options:
-  --url string                  Target URL
+  --url string                  Target URL; defaults to https:// when scheme omitted
   --mode value                  Output mode; defaults to html, repeatable with --json
   --json                        Render JSON output
   --wait-timeout duration       Page wait timeout, e.g. 15s
@@ -115,6 +116,11 @@ func parseFlags(args []string) (cliOptions, error) {
 	if opts.url == "" {
 		return cliOptions{}, errors.New("--url is required")
 	}
+	normalizedURL, err := normalizeURL(opts.url)
+	if err != nil {
+		return cliOptions{}, err
+	}
+	opts.url = normalizedURL
 	opts.modes = append(opts.modes, modes...)
 	if len(opts.modes) == 0 {
 		opts.modes = []string{"html"}
@@ -133,6 +139,33 @@ func parseFlags(args []string) (cliOptions, error) {
 		return cliOptions{}, errors.New("multiple --mode values require --json")
 	}
 	return opts, nil
+}
+
+func normalizeURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", errors.New("--url is required")
+	}
+
+	candidate := raw
+	if !strings.Contains(candidate, "://") {
+		candidate = "https://" + candidate
+	}
+
+	parsed, err := url.ParseRequestURI(candidate)
+	if err != nil {
+		return "", fmt.Errorf("invalid --url: %s", raw)
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("invalid --url: %s", raw)
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https":
+	default:
+		return "", fmt.Errorf("invalid --url: %s", raw)
+	}
+
+	return parsed.String(), nil
 }
 
 func validateMode(mode string) error {

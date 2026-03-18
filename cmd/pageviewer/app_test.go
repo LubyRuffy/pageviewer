@@ -35,6 +35,18 @@ func TestParseFlagsDefaultsModeToHTMLForJSON(t *testing.T) {
 	assert.True(t, opts.jsonOutput)
 }
 
+func TestParseFlagsNormalizesBareURLToHTTPS(t *testing.T) {
+	opts, err := parseFlags([]string{"--url", "ip.bmh.im"})
+	require.NoError(t, err)
+	assert.Equal(t, "https://ip.bmh.im", opts.url)
+}
+
+func TestParseFlagsRejectsInvalidURL(t *testing.T) {
+	_, err := parseFlags([]string{"--url", "://bad url"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid --url")
+}
+
 func TestParseFlagsRejectsInvalidMode(t *testing.T) {
 	_, err := parseFlags([]string{"--url", "https://example.com", "--mode", "pdf"})
 	require.Error(t, err)
@@ -196,6 +208,27 @@ func TestRunCLIDefaultsToHTMLMode(t *testing.T) {
 	assert.Equal(t, "<html><body>default html</body></html>", strings.TrimSpace(stdout.String()))
 }
 
+func TestRunCLINormalizesBareURLBeforeRequest(t *testing.T) {
+	original := startClient
+	startClient = func(ctx context.Context, cfg pageviewer.Config) (fetcher, error) {
+		return &fakeFetcher{
+			htmlFn: func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (string, error) {
+				assert.Equal(t, "https://ip.bmh.im", url)
+				return "<html><body>normalized</body></html>", nil
+			},
+		}, nil
+	}
+	t.Cleanup(func() { startClient = original })
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := runCLI(context.Background(), []string{"--url", "ip.bmh.im"}, &stdout, &stderr)
+	require.Equal(t, 0, code)
+	assert.Empty(t, stderr.String())
+	assert.Equal(t, "<html><body>normalized</body></html>", strings.TrimSpace(stdout.String()))
+}
+
 func TestRunCLIJSONIncludesModesAndResultsForSingleMode(t *testing.T) {
 	original := startClient
 	startClient = func(ctx context.Context, cfg pageviewer.Config) (fetcher, error) {
@@ -349,6 +382,17 @@ func TestRunCLIReturnsTwoOnParameterError(t *testing.T) {
 	require.Equal(t, 2, code)
 	assert.Empty(t, stdout.String())
 	assert.Contains(t, stderr.String(), "--url is required")
+}
+
+func TestRunCLIReturnsTwoOnInvalidURL(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := runCLI(context.Background(), []string{"--url", "://bad url"}, &stdout, &stderr)
+
+	require.Equal(t, 2, code)
+	assert.Empty(t, stdout.String())
+	assert.Contains(t, stderr.String(), "invalid --url")
 }
 
 func TestRunCLIReturnsTwoOnMultipleModesWithoutJSON(t *testing.T) {

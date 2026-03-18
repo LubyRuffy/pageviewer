@@ -42,6 +42,12 @@ go run ./cmd/pageviewer --help
 - `--devtools`：打开 DevTools
 - `-h` / `--help`：显示帮助并退出
 
+`--url` 的规则：
+
+- 支持完整的 `http://` 和 `https://` URL
+- 如果没有写 scheme，例如 `ip.bmh.im`，CLI 会先自动补成 `https://ip.bmh.im`
+- 如果输入明显不是合法网页 URL，会在参数阶段直接报错，不再继续请求浏览器
+
 `--mode` 的规则：
 
 - 默认不传时使用 `html`

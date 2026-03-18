@@ -20,13 +20,13 @@ GOTOOLCHAIN=go1.24.2 go test ./cmd/pageviewer -count=1
 参数解析：
 
 ```bash
-GOTOOLCHAIN=go1.24.2 go test ./cmd/pageviewer -run 'TestParseFlagsRequiresURL|TestParseFlagsDefaultsModeToHTML|TestParseFlagsDefaultsModeToHTMLForJSON|TestParseFlagsRejectsInvalidMode|TestParseFlagsAllowsRepeatedModesWithJSON|TestParseFlagsRejectsMultipleModesWithoutJSON|TestParseFlagsRejectsDuplicateModes|TestParseFlagsParsesCommonOptions' -count=1
+GOTOOLCHAIN=go1.24.2 go test ./cmd/pageviewer -run 'TestParseFlagsRequiresURL|TestParseFlagsDefaultsModeToHTML|TestParseFlagsDefaultsModeToHTMLForJSON|TestParseFlagsNormalizesBareURLToHTTPS|TestParseFlagsRejectsInvalidURL|TestParseFlagsRejectsInvalidMode|TestParseFlagsAllowsRepeatedModesWithJSON|TestParseFlagsRejectsMultipleModesWithoutJSON|TestParseFlagsRejectsDuplicateModes|TestParseFlagsParsesCommonOptions' -count=1
 ```
 
 错误处理：
 
 ```bash
-GOTOOLCHAIN=go1.24.2 go test ./cmd/pageviewer -run 'TestRunCLIPrintsTraceIDOnFetchError|TestRunCLIJSONFetchErrorStillWritesStderrOnly|TestRunCLIReturnsTwoOnParameterError|TestRunCLIReturnsTwoOnMultipleModesWithoutJSON' -count=1
+GOTOOLCHAIN=go1.24.2 go test ./cmd/pageviewer -run 'TestRunCLINormalizesBareURLBeforeRequest|TestRunCLIPrintsTraceIDOnFetchError|TestRunCLIJSONFetchErrorStillWritesStderrOnly|TestRunCLIReturnsTwoOnParameterError|TestRunCLIReturnsTwoOnInvalidURL|TestRunCLIReturnsTwoOnMultipleModesWithoutJSON' -count=1
 ```
 
 ### 运行全仓测试
@@ -47,6 +47,12 @@ HTML：
 
 ```bash
 go run ./cmd/pageviewer --url https://example.com
+```
+
+自动补全 scheme：
+
+```bash
+go run ./cmd/pageviewer --url ip.bmh.im
 ```
 
 正文 JSON：
