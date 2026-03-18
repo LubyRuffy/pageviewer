@@ -1,10 +1,10 @@
 # pageviewer
 
-基于 `rod` 的渲染式网页访问库，适合抓取渲染后的 HTML、正文、链接，以及文本型主文档原始响应。
+基于 `rod` 的渲染式网页访问库，也提供 `cmd/pageviewer` 命令行工具。适合抓取渲染后的 HTML、正文、链接，以及文本型主文档原始响应。
 
-## 特性
+## 项目简介
 
-- 支持长驻 `Client`，内部维护共享 `Browser` 和 `Page Worker Pool`
+- 库层提供长驻 `Client`，内部维护共享 `Browser` 和 `Page Worker Pool`
 - 保留兼容入口 `Visit`，适合一次性调用
 - 同一 `Browser` / profile 下可复用会话状态，适合共享 cookie 与登录态
 - 默认通过 `stealth.Page` 降低浏览器自动化识别概率
@@ -14,15 +14,29 @@
 - 支持通过 `WithTraceID` + `DebugTrace` 做最近请求排障
 - 页面稳定等待会尽量容忍 `WaitLoad` / `WaitIdle` / `WaitDOMStable` 的超时，降低慢页面误报
 
-## 安装
+## 快速启动
+
+安装库：
 
 ```bash
 go get github.com/LubyRuffy/pageviewer
 ```
 
-## 推荐用法
+运行测试：
 
-生产环境推荐使用长驻 `Client`：
+```bash
+GOTOOLCHAIN=go1.24.2 go test ./...
+```
+
+构建 CLI：
+
+```bash
+go build -o bin/pageviewer ./cmd/pageviewer
+```
+
+## 使用示例
+
+推荐在生产环境使用长驻 `Client`：
 
 ```go
 client, err := pageviewer.Start(ctx, pageviewer.Config{
@@ -45,6 +59,25 @@ if err != nil {
 
 _ = html
 ```
+
+CLI 示例：
+
+```bash
+go run ./cmd/pageviewer --url https://example.com --mode html
+go run ./cmd/pageviewer --url https://example.com --mode article --json
+go run ./cmd/pageviewer --url https://example.com --mode raw-text --json
+go run ./cmd/pageviewer --url https://example.com --mode html --trace-id req-123
+```
+
+## 常见使用方式
+
+- `html`：抓取渲染后的完整 HTML
+- `links`：抓取页面中的文本链接
+- `article`：抓取正文并输出 Markdown
+- `raw-text`：只读取主文档响应，适合文本型接口
+- `--json`：输出结构化结果，便于脚本和程序消费
+- `--trace-id`：把一次交互 ID 传入请求，便于失败后追踪
+- 参数、输出结构和退出码详见 [docs/CLI.md](docs/CLI.md)
 
 ## 对外 API
 
@@ -69,83 +102,12 @@ func (c *Client) RawText(ctx context.Context, url string, opts ...RequestOption)
 func Visit(u string, onPageLoad func(page *rod.Page) error, opts ...VisitOption) error
 ```
 
-## 配置项
-
-`Config` 主要字段：
-
-- `PoolSize`：worker 池大小，默认 `1`
-- `Warmup`：启动时预热的 worker 数量，默认 `1`
-- `AcquireTimeout`：借用 worker 的默认超时，默认 `20s`
-- `UserDataDir`：指定浏览器用户目录
-- `Debug` / `NoHeadless` / `DevTools`
-- `Proxy`
-- `IgnoreCertErrors`
-- `ChromePath`
-- `UserModeBrowser`
-- `RemoteDebuggingPort`
-
-请求级选项：
-
-- `WithWaitTimeout`
-- `WithAcquireTimeout`
-- `WithBeforeRequest`
-- `WithRemoveInvisibleDiv`
-- `WithTraceID`
-- `WithBrowser`（兼容入口 `Visit` 使用）
-
-## 数据提取能力
-
-DOM 模式：
-
-- `HTML`：返回渲染后的完整 HTML
-- `Links`：返回页面中的文本链接
-- `ReadabilityArticle`：返回正文抽取结果，同时附带 Markdown、渲染 HTML、主文档原始 HTML
-
-文本模式：
-
-- `RawText`：只读取主文档响应，不读取二进制内容
-- 支持的内容类型为 `text/*`、`application/json`、`application/xml`、`text/xml`
-
-返回结构：
-
-```go
-type TextResponse struct {
-    Body        string
-    ContentType string
-    StatusCode  int
-    FinalURL    string
-    Header      http.Header
-}
-```
-
-## 一键排障链路
-
-如果上层已经有交互 ID，建议直接透传：
-
-```go
-interactionID := "chat-20260307-001"
-
-_, err := client.HTML(ctx, targetURL, pageviewer.WithTraceID(interactionID))
-if err != nil {
-    trace, ok := client.DebugTrace(interactionID)
-    if ok {
-        log.Printf("trace=%+v", trace)
-    }
-}
-```
-
-`Stats()` 可用于观察当前池状态与最近错误：
-
-```go
-stats := client.Stats()
-log.Printf("workers=%d idle=%d traces=%d lastErr=%q",
-    stats.TotalWorkers,
-    stats.IdleWorkers,
-    stats.RecentTraces,
-    stats.LastError,
-)
-```
-
 ## 开发文档
 
+- 项目约定见 [AGENTS.md](AGENTS.md)
+- 架构说明见 [ARCHITECTURE.md](ARCHITECTURE.md)
+- CLI 说明见 [docs/CLI.md](docs/CLI.md)
+- 配置说明见 [docs/CONFIG.md](docs/CONFIG.md)
+- 测试说明见 [docs/TESTING.md](docs/TESTING.md)
+- 变更记录见 [CHANGELOG.md](CHANGELOG.md)
 - 详细设计见 [docs/shared-browser-pool-development.md](docs/shared-browser-pool-development.md)
