@@ -1,9 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/LubyRuffy/pageviewer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,4 +55,154 @@ func TestParseFlagsParsesCommonOptions(t *testing.T) {
 	assert.Equal(t, "http://127.0.0.1:8080", opts.proxy)
 	assert.True(t, opts.noHeadless)
 	assert.True(t, opts.devTools)
+}
+
+func TestBuildConfigMapsBrowserAndRequestOptions(t *testing.T) {
+	opts := cliOptions{
+		url:                "https://example.com",
+		mode:               "html",
+		waitTimeout:        12 * time.Second,
+		traceID:            "trace-2",
+		removeInvisibleDiv: true,
+		acquireTimeout:     4 * time.Second,
+		proxy:              "socks5://127.0.0.1:1080",
+		noHeadless:         true,
+		devTools:           true,
+	}
+
+	cfg, reqOpts := buildConfig(opts)
+	assert.Equal(t, "socks5://127.0.0.1:1080", cfg.Proxy)
+	assert.True(t, cfg.NoHeadless)
+	assert.True(t, cfg.DevTools)
+	assert.Len(t, reqOpts, 4)
+}
+
+func TestRunCLIRendersModes(t *testing.T) {
+	cases := []struct {
+		name     string
+		mode     string
+		expected string
+	}{
+		{name: "html", mode: "html", expected: "<html><body>html</body></html>"},
+		{name: "links", mode: "links", expected: "https://example.com"},
+		{name: "article", mode: "article", expected: "# Article"},
+		{name: "raw-text", mode: "raw-text", expected: "raw body"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			original := startClient
+			startClient = func(ctx context.Context, cfg pageviewer.Config) (fetcher, error) {
+				return &fakeFetcher{
+					htmlFn: func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (string, error) {
+						return "<html><body>html</body></html>", nil
+					},
+					linksFn: func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (string, error) {
+						return "https://example.com", nil
+					},
+					articleFn: func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (pageviewer.ReadabilityArticleWithMarkdown, error) {
+						return pageviewer.ReadabilityArticleWithMarkdown{Markdown: "# Article"}, nil
+					},
+					rawTextFn: func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (pageviewer.TextResponse, error) {
+						return pageviewer.TextResponse{Body: "raw body"}, nil
+					},
+				}, nil
+			}
+			t.Cleanup(func() { startClient = original })
+
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+
+			code := runCLI(context.Background(), []string{"--url", "https://example.com", "--mode", tc.mode}, &stdout, &stderr)
+			require.Equal(t, 0, code)
+			assert.Empty(t, stderr.String())
+			assert.Equal(t, tc.expected, strings.TrimSpace(stdout.String()))
+		})
+	}
+}
+
+func TestRunCLIJSONIncludesModeAndURL(t *testing.T) {
+	original := startClient
+	startClient = func(ctx context.Context, cfg pageviewer.Config) (fetcher, error) {
+		return &fakeFetcher{
+			rawTextFn: func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (pageviewer.TextResponse, error) {
+				return pageviewer.TextResponse{
+					Body:        "raw body",
+					ContentType: "text/plain",
+					StatusCode:  200,
+					FinalURL:    "https://example.com/final",
+					Header:      http.Header{"Content-Type": []string{"text/plain"}},
+				}, nil
+			},
+		}, nil
+	}
+	t.Cleanup(func() { startClient = original })
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := runCLI(context.Background(), []string{"--url", "https://example.com", "--mode", "raw-text", "--json"}, &stdout, &stderr)
+	require.Equal(t, 0, code)
+	assert.Empty(t, stderr.String())
+
+	var got struct {
+		Mode        string              `json:"mode"`
+		URL         string              `json:"url"`
+		Body        string              `json:"body"`
+		ContentType string              `json:"content_type"`
+		StatusCode  int                 `json:"status_code"`
+		FinalURL    string              `json:"final_url"`
+		Header      map[string][]string `json:"header"`
+	}
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &got))
+	assert.Equal(t, "raw-text", got.Mode)
+	assert.Equal(t, "https://example.com", got.URL)
+	assert.Equal(t, "raw body", got.Body)
+	assert.Equal(t, "text/plain", got.ContentType)
+	assert.Equal(t, 200, got.StatusCode)
+	assert.Equal(t, "https://example.com/final", got.FinalURL)
+	assert.Equal(t, []string{"text/plain"}, got.Header["Content-Type"])
+}
+
+type fakeFetcher struct {
+	closeFn   func() error
+	htmlFn    func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (string, error)
+	linksFn   func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (string, error)
+	articleFn func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (pageviewer.ReadabilityArticleWithMarkdown, error)
+	rawTextFn func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (pageviewer.TextResponse, error)
+}
+
+func (f *fakeFetcher) Close() error {
+	if f.closeFn != nil {
+		return f.closeFn()
+	}
+	return nil
+}
+
+func (f *fakeFetcher) HTML(ctx context.Context, url string, opts ...pageviewer.RequestOption) (string, error) {
+	if f.htmlFn != nil {
+		return f.htmlFn(ctx, url, opts...)
+	}
+	return "", errors.New("html not configured")
+}
+
+func (f *fakeFetcher) Links(ctx context.Context, url string, opts ...pageviewer.RequestOption) (string, error) {
+	if f.linksFn != nil {
+		return f.linksFn(ctx, url, opts...)
+	}
+	return "", errors.New("links not configured")
+}
+
+func (f *fakeFetcher) ReadabilityArticle(ctx context.Context, url string, opts ...pageviewer.RequestOption) (pageviewer.ReadabilityArticleWithMarkdown, error) {
+	if f.articleFn != nil {
+		return f.articleFn(ctx, url, opts...)
+	}
+	return pageviewer.ReadabilityArticleWithMarkdown{}, errors.New("article not configured")
+}
+
+func (f *fakeFetcher) RawText(ctx context.Context, url string, opts ...pageviewer.RequestOption) (pageviewer.TextResponse, error) {
+	if f.rawTextFn != nil {
+		return f.rawTextFn(ctx, url, opts...)
+	}
+	return pageviewer.TextResponse{}, errors.New("raw text not configured")
 }
