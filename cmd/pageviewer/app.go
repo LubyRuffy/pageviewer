@@ -127,7 +127,7 @@ func runCLI(ctx context.Context, args []string, stdout io.Writer, stderr io.Writ
 	cfg, reqOpts := buildConfig(opts)
 	client, err := startClient(ctx, cfg)
 	if err != nil {
-		return writeError(stderr, err)
+		return writeFetchError(stderr, err, opts.traceID)
 	}
 
 	defer func() {
@@ -140,7 +140,7 @@ func runCLI(ctx context.Context, args []string, stdout io.Writer, stderr io.Writ
 	case "html":
 		content, err := client.HTML(ctx, opts.url, reqOpts...)
 		if err != nil {
-			return writeError(stderr, err)
+			return writeFetchError(stderr, err, opts.traceID)
 		}
 		if opts.jsonOutput {
 			return writeJSON(stdout, stderr, textOutputEnvelope{
@@ -153,7 +153,7 @@ func runCLI(ctx context.Context, args []string, stdout io.Writer, stderr io.Writ
 	case "links":
 		content, err := client.Links(ctx, opts.url, reqOpts...)
 		if err != nil {
-			return writeError(stderr, err)
+			return writeFetchError(stderr, err, opts.traceID)
 		}
 		if opts.jsonOutput {
 			return writeJSON(stdout, stderr, textOutputEnvelope{
@@ -166,7 +166,7 @@ func runCLI(ctx context.Context, args []string, stdout io.Writer, stderr io.Writ
 	case "article":
 		article, err := client.ReadabilityArticle(ctx, opts.url, reqOpts...)
 		if err != nil {
-			return writeError(stderr, err)
+			return writeFetchError(stderr, err, opts.traceID)
 		}
 		if opts.jsonOutput {
 			return writeJSON(stdout, stderr, articleOutputEnvelope{
@@ -179,7 +179,7 @@ func runCLI(ctx context.Context, args []string, stdout io.Writer, stderr io.Writ
 	case "raw-text":
 		text, err := client.RawText(ctx, opts.url, reqOpts...)
 		if err != nil {
-			return writeError(stderr, err)
+			return writeFetchError(stderr, err, opts.traceID)
 		}
 		if opts.jsonOutput {
 			return writeJSON(stdout, stderr, rawTextOutputEnvelope{
@@ -194,7 +194,7 @@ func runCLI(ctx context.Context, args []string, stdout io.Writer, stderr io.Writ
 		_, _ = fmt.Fprint(stdout, text.Body)
 		return 0
 	default:
-		return writeError(stderr, fmt.Errorf("invalid --mode: %s", opts.mode))
+		return writeFetchError(stderr, fmt.Errorf("invalid --mode: %s", opts.mode), opts.traceID)
 	}
 }
 
@@ -203,6 +203,17 @@ func writeError(stderr io.Writer, err error) int {
 		return 0
 	}
 	_, _ = fmt.Fprintln(stderr, err)
+	return 1
+}
+
+func writeFetchError(stderr io.Writer, err error, traceID string) int {
+	if err == nil {
+		return 0
+	}
+	_, _ = fmt.Fprintln(stderr, err)
+	if traceID != "" {
+		_, _ = fmt.Fprintf(stderr, "trace_id=%s\n", traceID)
+	}
 	return 1
 }
 

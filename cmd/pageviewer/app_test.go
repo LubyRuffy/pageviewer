@@ -164,6 +164,70 @@ func TestRunCLIJSONIncludesModeAndURL(t *testing.T) {
 	assert.Equal(t, []string{"text/plain"}, got.Header["Content-Type"])
 }
 
+func TestRunCLIPrintsTraceIDOnFetchError(t *testing.T) {
+	original := startClient
+	startClient = func(ctx context.Context, cfg pageviewer.Config) (fetcher, error) {
+		return &fakeFetcher{
+			htmlFn: func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (string, error) {
+				return "", errors.New("navigation failed")
+			},
+		}, nil
+	}
+	t.Cleanup(func() { startClient = original })
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := runCLI(context.Background(), []string{
+		"--url", "https://example.com",
+		"--mode", "html",
+		"--trace-id", "req-123",
+	}, &stdout, &stderr)
+
+	require.Equal(t, 1, code)
+	assert.Empty(t, stdout.String())
+	assert.Contains(t, stderr.String(), "navigation failed")
+	assert.Contains(t, stderr.String(), "trace_id=req-123")
+}
+
+func TestRunCLIJSONFetchErrorStillWritesStderrOnly(t *testing.T) {
+	original := startClient
+	startClient = func(ctx context.Context, cfg pageviewer.Config) (fetcher, error) {
+		return &fakeFetcher{
+			htmlFn: func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (string, error) {
+				return "", errors.New("json navigation failed")
+			},
+		}, nil
+	}
+	t.Cleanup(func() { startClient = original })
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := runCLI(context.Background(), []string{
+		"--url", "https://example.com",
+		"--mode", "html",
+		"--json",
+		"--trace-id", "req-json",
+	}, &stdout, &stderr)
+
+	require.Equal(t, 1, code)
+	assert.Empty(t, stdout.String())
+	assert.Contains(t, stderr.String(), "json navigation failed")
+	assert.Contains(t, stderr.String(), "trace_id=req-json")
+}
+
+func TestRunCLIReturnsTwoOnParameterError(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := runCLI(context.Background(), []string{"--mode", "html"}, &stdout, &stderr)
+
+	require.Equal(t, 2, code)
+	assert.Empty(t, stdout.String())
+	assert.Contains(t, stderr.String(), "--url is required")
+}
+
 type fakeFetcher struct {
 	closeFn   func() error
 	htmlFn    func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (string, error)
