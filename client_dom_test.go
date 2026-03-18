@@ -18,9 +18,7 @@ func TestClientHTMLUsesSharedBrowser(t *testing.T) {
 	}))
 	defer s.Close()
 
-	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
-	require.NoError(t, err)
-	defer client.Close()
+	client := newTestClient(t, Config{PoolSize: 1, Warmup: 1})
 
 	html, err := client.HTML(context.Background(), s.URL)
 	require.NoError(t, err)
@@ -33,11 +31,9 @@ func TestVisitWithBrowserKeepsBrowserReusable(t *testing.T) {
 	}))
 	defer s.Close()
 
-	browser, err := NewBrowser()
-	require.NoError(t, err)
-	defer browser.Close()
+	browser := sharedTestBrowser(t)
 
-	err = Visit(s.URL, func(page *rod.Page) error {
+	err := Visit(s.URL, func(page *rod.Page) error {
 		_, err := page.HTML()
 		return err
 	}, WithBrowser(browser))
@@ -60,11 +56,9 @@ func TestClientVisitRepairsClosedWorker(t *testing.T) {
 	}))
 	defer s.Close()
 
-	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
-	require.NoError(t, err)
-	defer client.Close()
+	client := newTestClient(t, Config{PoolSize: 1, Warmup: 1})
 
-	err = client.Visit(context.Background(), s.URL, func(page *rod.Page) error {
+	err := client.Visit(context.Background(), s.URL, func(page *rod.Page) error {
 		return page.Close()
 	})
 	require.NoError(t, err)
@@ -80,8 +74,7 @@ func TestCloseWaitsForInFlightVisit(t *testing.T) {
 	}))
 	defer s.Close()
 
-	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
-	require.NoError(t, err)
+	client := newTestClient(t, Config{PoolSize: 1, Warmup: 1})
 
 	started := make(chan struct{})
 	releaseVisit := make(chan struct{})
@@ -120,8 +113,7 @@ func TestCloseUnblocksWaitingAcquireWithErrClosed(t *testing.T) {
 	}))
 	defer s.Close()
 
-	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
-	require.NoError(t, err)
+	client := newTestClient(t, Config{PoolSize: 1, Warmup: 1})
 
 	started := make(chan struct{})
 	releaseVisit := make(chan struct{})
@@ -170,8 +162,7 @@ func TestClosePreventsQueuedRequestFromRunning(t *testing.T) {
 	}))
 	defer s.Close()
 
-	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
-	require.NoError(t, err)
+	client := newTestClient(t, Config{PoolSize: 1, Warmup: 1})
 
 	started := make(chan struct{})
 	releaseVisit := make(chan struct{})

@@ -74,11 +74,7 @@ func TestGetBrowser(t *testing.T) {
 }
 
 func TestGetPage(t *testing.T) {
-	browser, err := NewBrowser()
-	assert.NoError(t, err)
-	if browser != nil {
-		defer browser.Close()
-	}
+	browser := sharedTestBrowser(t)
 
 	page, err := browser.GetPage()
 	assert.NoError(t, err)
@@ -134,14 +130,10 @@ func TestVisitWithOptions(t *testing.T) {
 	}))
 	defer s.Close()
 
-	b, err := NewBrowser()
-	assert.NoError(t, err)
-	if b != nil {
-		defer b.Close()
-	}
+	b := sharedTestBrowser(t)
 
 	var html string
-	err = Visit(s.URL, func(page *rod.Page) error {
+	err := Visit(s.URL, func(page *rod.Page) error {
 		html = page.MustHTML()
 		return nil
 	}, WithBrowser(b), WithWaitTimeout(time.Second*20))
@@ -155,9 +147,7 @@ func TestVisitDoesNotRepairSuccessfulCompatibilityCall(t *testing.T) {
 	}))
 	defer s.Close()
 
-	browser, err := NewBrowser()
-	require.NoError(t, err)
-	defer browser.Close()
+	browser := sharedTestBrowser(t)
 
 	oldWorkerFactory := newClientWorker
 	var created int32
@@ -173,7 +163,7 @@ func TestVisitDoesNotRepairSuccessfulCompatibilityCall(t *testing.T) {
 		newClientWorker = oldWorkerFactory
 	})
 
-	err = Visit(s.URL, func(page *rod.Page) error {
+	err := Visit(s.URL, func(page *rod.Page) error {
 		return nil
 	}, WithBrowser(browser), WithAcquireTimeout(20*time.Millisecond))
 	require.NoError(t, err)

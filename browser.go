@@ -19,15 +19,16 @@ import (
 )
 
 var (
-	defaultBrowser        *Browser
-	once                  sync.Once
-	newBrowserWithOptions = NewBrowser
-)
-
-const (
-	browserCloseWaitTimeout    = 2 * time.Second
-	browserKillWaitTimeout     = 3 * time.Second
-	browserProcessPollInterval = 50 * time.Millisecond
+	defaultBrowser                   *Browser
+	once                             sync.Once
+	newBrowserWithOptions            = NewBrowser
+	browserCloseWaitTimeout          = 2 * time.Second
+	browserKillWaitTimeout           = 3 * time.Second
+	browserProcessPollInterval       = 50 * time.Millisecond
+	browserWaitLoadTimeoutCap        = 15 * time.Second
+	browserWaitIdleTimeoutCap        = 5 * time.Second
+	browserWaitRequestIdleTimeoutCap = 500 * time.Millisecond
+	browserWaitDOMStableTimeoutCap   = 2 * time.Second
 )
 
 type PageOptions struct {
@@ -146,14 +147,14 @@ func waitForProcessTreeExit(pid int, timeout time.Duration) (bool, error) {
 
 func (b *Browser) WaitPage(page *rod.Page, po *PageOptions) error {
 	s := time.Now()
-	err := page.Timeout(min(po.waitTimeout, time.Second*15)).WaitLoad()
+	err := page.Timeout(min(po.waitTimeout, browserWaitLoadTimeoutCap)).WaitLoad()
 	if err != nil {
 		if !errors.Is(err, context.DeadlineExceeded) {
 			return err
 		}
 	}
 
-	err = page.WaitIdle(min(po.waitTimeout-time.Since(s), time.Second*5))
+	err = page.WaitIdle(min(po.waitTimeout-time.Since(s), browserWaitIdleTimeoutCap))
 	if err != nil {
 		if !errors.Is(err, context.DeadlineExceeded) {
 			return err
@@ -161,13 +162,13 @@ func (b *Browser) WaitPage(page *rod.Page, po *PageOptions) error {
 	}
 
 	// 等待请求都有响应
-	page.WaitRequestIdle(min(po.waitTimeout-time.Since(s), 500*time.Millisecond), nil, []string{
+	page.WaitRequestIdle(min(po.waitTimeout-time.Since(s), browserWaitRequestIdleTimeoutCap), nil, []string{
 		``, // 排除广告部分
 	}, nil)()
 
 	// 把差异调整为0.2，放大，不然会一直等待
 	if po.waitTimeout-time.Since(s) > 0 {
-		err = page.WaitDOMStable(min(po.waitTimeout-time.Since(s), time.Second*2), 0.2)
+		err = page.WaitDOMStable(min(po.waitTimeout-time.Since(s), browserWaitDOMStableTimeoutCap), 0.2)
 		if err != nil {
 			if !errors.Is(err, context.DeadlineExceeded) {
 				return err

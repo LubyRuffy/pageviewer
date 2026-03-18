@@ -32,9 +32,7 @@ func TestBrowser_RawHTML(t *testing.T) {
 	}))
 	defer s.Close()
 
-	browser, err := NewBrowser(WithIgnoreCertErrors(true))
-	assert.NoError(t, err)
-	defer browser.Close()
+	browser := sharedTestBrowser(t)
 	html1, err := browser.RawHTML(s.URL, newDefaultVisitOptions().PageOptions)
 	assert.NoError(t, err)
 	html2, err := browser.HTML(s.URL, newDefaultVisitOptions().PageOptions)
@@ -95,11 +93,9 @@ func TestBrowser_RemoveInvisibleElements(t *testing.T) {
 	}))
 	var html string
 	vo := NewVisitOptions(WithWaitTimeout(time.Second*20), WithRemoveInvisibleDiv(true)).PageOptions
-	b, err := NewBrowser()
-	assert.NoError(t, err)
-	defer b.Close()
+	b := sharedTestBrowser(t)
 
-	err = b.Run(s.URL, func(page *rod.Page) error {
+	err := b.Run(s.URL, func(page *rod.Page) error {
 		html = page.MustHTML()
 		return nil
 	}, vo)
@@ -115,10 +111,8 @@ func TestBrowser_HTML(t *testing.T) {
 	}))
 	defer s.Close()
 
-	browser, err := NewBrowser(WithIgnoreCertErrors(true))
-	assert.NoError(t, err)
-	defer browser.Close()
-	_, err = browser.HTML(s.URL, newDefaultVisitOptions().PageOptions)
+	browser := sharedTestBrowser(t)
+	_, err := browser.HTML(s.URL, newDefaultVisitOptions().PageOptions)
 	assert.Error(t, err)
 
 }
@@ -129,9 +123,7 @@ func TestBrowser_HTML_longtime(t *testing.T) {
 	}))
 	defer s.Close()
 
-	browser, err := NewBrowser()
-	assert.NoError(t, err)
-	defer browser.Close()
+	browser := sharedTestBrowser(t)
 	html, err := browser.HTML(s.URL, NewVisitOptions(WithWaitTimeout(time.Second*5)).PageOptions)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, html)
@@ -163,9 +155,7 @@ func TestBrowser_Links(t *testing.T) {
 	}))
 	defer s.Close()
 
-	browser, err := NewBrowser(WithIgnoreCertErrors(true))
-	assert.NoError(t, err)
-	defer browser.Close()
+	browser := sharedTestBrowser(t)
 	str, err := browser.Links(s.URL, newDefaultVisitOptions().PageOptions)
 	assert.NoError(t, err)
 	assert.Contains(t, str, "https://example1.com")
@@ -193,9 +183,7 @@ func TestBrowser_ReadabilityArticle(t *testing.T) {
 	url := s.URL
 	//url := `https://www.freebuf.com/articles/web/439189.html`
 
-	browser, err := NewBrowser()
-	assert.NoError(t, err)
-	defer browser.Close()
+	browser := sharedTestBrowser(t)
 
 	text, err := browser.ReadabilityArticle(url)
 	assert.NoError(t, err)

@@ -18,12 +18,10 @@ func TestClientDebugTraceReturnsRecentDOMTrace(t *testing.T) {
 	}))
 	defer s.Close()
 
-	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
-	require.NoError(t, err)
-	defer client.Close()
+	client := newTestClient(t, Config{PoolSize: 1, Warmup: 1})
 
 	traceID := "trace-dom-123"
-	_, err = client.HTML(context.Background(), s.URL, WithTraceID(traceID))
+	_, err := client.HTML(context.Background(), s.URL, WithTraceID(traceID))
 	require.NoError(t, err)
 
 	trace, ok := client.DebugTrace(traceID)
@@ -51,12 +49,10 @@ func TestClientDebugTraceRecordsRawTextErrors(t *testing.T) {
 	}))
 	defer s.Close()
 
-	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
-	require.NoError(t, err)
-	defer client.Close()
+	client := newTestClient(t, Config{PoolSize: 1, Warmup: 1})
 
 	traceID := "trace-text-123"
-	_, err = client.RawText(context.Background(), s.URL, WithTraceID(traceID))
+	_, err := client.RawText(context.Background(), s.URL, WithTraceID(traceID))
 	require.ErrorIs(t, err, ErrUnsupportedContentType)
 
 	trace, ok := client.DebugTrace(traceID)
@@ -87,12 +83,10 @@ func TestClientDebugTracePreservesAttemptsForSameTraceID(t *testing.T) {
 	}))
 	defer successServer.Close()
 
-	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
-	require.NoError(t, err)
-	defer client.Close()
+	client := newTestClient(t, Config{PoolSize: 1, Warmup: 1})
 
 	traceID := "trace-retry-123"
-	_, err = client.RawText(context.Background(), errorServer.URL, WithTraceID(traceID))
+	_, err := client.RawText(context.Background(), errorServer.URL, WithTraceID(traceID))
 	require.ErrorIs(t, err, ErrUnsupportedContentType)
 
 	_, err = client.HTML(context.Background(), successServer.URL, WithTraceID(traceID))
@@ -120,12 +114,10 @@ func TestClientDebugTraceRecordsDOMErrorResponse(t *testing.T) {
 	}))
 	defer s.Close()
 
-	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
-	require.NoError(t, err)
-	defer client.Close()
+	client := newTestClient(t, Config{PoolSize: 1, Warmup: 1})
 
 	traceID := "trace-dom-error-123"
-	_, err = client.HTML(context.Background(), s.URL, WithTraceID(traceID))
+	_, err := client.HTML(context.Background(), s.URL, WithTraceID(traceID))
 	require.ErrorIs(t, err, ErrUnsupportedContentType)
 
 	trace, ok := client.DebugTrace(traceID)

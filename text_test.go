@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,9 +20,7 @@ func TestClientRawTextReturnsJSON(t *testing.T) {
 	}))
 	defer s.Close()
 
-	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
-	require.NoError(t, err)
-	defer client.Close()
+	client := newTestClient(t, Config{PoolSize: 1, Warmup: 1})
 
 	resp, err := client.RawText(context.Background(), s.URL)
 	require.NoError(t, err)
@@ -40,10 +39,47 @@ func TestClientRawTextRejectsPDF(t *testing.T) {
 	}))
 	defer s.Close()
 
-	client, err := Start(context.Background(), Config{PoolSize: 1, Warmup: 1})
-	require.NoError(t, err)
-	defer client.Close()
+	client := newTestClient(t, Config{PoolSize: 1, Warmup: 1})
 
-	_, err = client.RawText(context.Background(), s.URL)
+	_, err := client.RawText(context.Background(), s.URL)
 	assert.ErrorIs(t, err, ErrUnsupportedContentType)
+}
+
+func TestClientRawTextBlocksSubresourcesForHTMLDocuments(t *testing.T) {
+	var styleRequests atomic.Int32
+	var imageRequests atomic.Int32
+
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/style.css":
+			styleRequests.Add(1)
+			w.Header().Set("Content-Type", "text/css")
+			_, _ = w.Write([]byte("body { color: red; }"))
+		case "/image.png":
+			imageRequests.Add(1)
+			w.Header().Set("Content-Type", "image/png")
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(`<!doctype html>
+<html>
+  <head>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <h1>hello</h1>
+    <img src="/image.png" alt="blocked">
+  </body>
+</html>`))
+		}
+	}))
+	defer s.Close()
+
+	client := newTestClient(t, Config{PoolSize: 1, Warmup: 1})
+
+	resp, err := client.RawText(context.Background(), s.URL)
+	require.NoError(t, err)
+	assert.Contains(t, resp.Body, "<h1>hello</h1>")
+	assert.Zero(t, styleRequests.Load())
+	assert.Zero(t, imageRequests.Load())
 }
