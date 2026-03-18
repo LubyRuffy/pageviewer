@@ -336,6 +336,24 @@ func TestRunCLIReturnsTwoOnMultipleModesWithoutJSON(t *testing.T) {
 	assert.Contains(t, stderr.String(), "multiple --mode values require --json")
 }
 
+func TestRunCLIHelpPrintsUsageAndReturnsZero(t *testing.T) {
+	for _, args := range [][]string{{"--help"}, {"-h"}} {
+		t.Run(strings.Join(args, ","), func(t *testing.T) {
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+
+			code := runCLI(context.Background(), args, &stdout, &stderr)
+
+			require.Equal(t, 0, code)
+			assert.Contains(t, stdout.String(), "Usage:")
+			assert.Contains(t, stdout.String(), "--url")
+			assert.Contains(t, stdout.String(), "--mode")
+			assert.Contains(t, stdout.String(), "--json")
+			assert.Empty(t, stderr.String())
+		})
+	}
+}
+
 type fakeFetcher struct {
 	closeFn   func() error
 	htmlFn    func(ctx context.Context, url string, opts ...pageviewer.RequestOption) (string, error)

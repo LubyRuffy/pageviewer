@@ -68,6 +68,30 @@ var startClient = func(ctx context.Context, cfg pageviewer.Config) (fetcher, err
 	return pageviewer.Start(ctx, cfg)
 }
 
+const usageText = `Usage:
+  pageviewer --url <url> --mode <mode> [options]
+  pageviewer --url <url> --json --mode <mode> --mode <mode> [options]
+
+Modes:
+  html       Rendered full HTML
+  links      Page links text
+  article    Readability article markdown / JSON fields
+  raw-text   Main document raw text response
+
+Options:
+  --url string                  Target URL
+  --mode value                  Output mode; repeatable with --json
+  --json                        Render JSON output
+  --wait-timeout duration       Page wait timeout, e.g. 15s
+  --trace-id string             Trace ID for debugging
+  --remove-invisible-div        Remove invisible div elements
+  --acquire-timeout duration    Worker acquire timeout, e.g. 5s
+  --proxy string                Browser proxy
+  --no-headless                 Show browser window
+  --devtools                    Open DevTools
+  -h, --help                    Show this help
+`
+
 func parseFlags(args []string) (cliOptions, error) {
 	fs := flag.NewFlagSet("pageviewer", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -150,6 +174,10 @@ func buildConfig(opts cliOptions) (pageviewer.Config, []pageviewer.RequestOption
 func runCLI(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) (exitCode int) {
 	opts, err := parseFlags(args)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			writeUsage(stdout)
+			return 0
+		}
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
@@ -242,6 +270,10 @@ func runJSONModes(ctx context.Context, client fetcher, opts cliOptions, reqOpts 
 		URL:     opts.url,
 		Results: results,
 	})
+}
+
+func writeUsage(stdout io.Writer) {
+	_, _ = io.WriteString(stdout, usageText)
 }
 
 func fetchModeResult(ctx context.Context, client fetcher, url, mode string, reqOpts []pageviewer.RequestOption) (any, error) {

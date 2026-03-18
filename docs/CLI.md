@@ -17,6 +17,12 @@ go build -o bin/pageviewer ./cmd/pageviewer
 ./bin/pageviewer --url https://example.com --mode html
 ```
 
+查看帮助：
+
+```bash
+go run ./cmd/pageviewer --help
+```
+
 ## 参数
 
 必填参数：
@@ -34,6 +40,7 @@ go build -o bin/pageviewer ./cmd/pageviewer
 - `--proxy`：浏览器代理地址
 - `--no-headless`：显示浏览器窗口
 - `--devtools`：打开 DevTools
+- `-h` / `--help`：显示帮助并退出
 
 `--mode` 的规则：
 

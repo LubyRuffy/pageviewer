@@ -34,6 +34,12 @@ GOTOOLCHAIN=go1.24.2 go test ./...
 go build -o bin/pageviewer ./cmd/pageviewer
 ```
 
+查看 CLI 帮助：
+
+```bash
+go run ./cmd/pageviewer --help
+```
+
 ## 使用示例
 
 推荐在生产环境使用长驻 `Client`：
