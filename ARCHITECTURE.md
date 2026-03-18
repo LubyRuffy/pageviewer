@@ -25,6 +25,7 @@ CLI args
 - 管理浏览器实例生命周期
 - 负责页面创建、导航、稳定等待和正文抽取
 - 提供 `HTML`、`Links`、`ReadabilityArticle`、`RawText` 等底层访问能力
+- `RawText` 导航时只放行主文档请求，用于轻量抓取文本型响应
 
 ### `client.go`
 

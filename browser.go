@@ -35,6 +35,7 @@ type PageOptions struct {
 	waitTimeout        time.Duration              // 等待超时的设置
 	beforeRequest      func(page *rod.Page) error // 在请求之前的回调，做一些
 	removeInvisibleDiv bool                       // 是否移除不可见的div
+	blockSubresources  bool                       // 是否阻断主文档之外的请求
 }
 
 type Browser struct {
@@ -292,6 +293,12 @@ func (b *Browser) navigateTextPage(page *rod.Page, u string, po *PageOptions) (d
 		}
 	}
 
+	stopBlocker, err := blockSubresources(page, po)
+	if err != nil {
+		return documentResponseResult{}, err
+	}
+	defer stopBlocker()
+
 	waitDocument, stopWaiting := waitForMainDocumentResponse(page, true)
 	defer stopWaiting()
 
@@ -314,6 +321,34 @@ func (b *Browser) navigateTextPage(page *rod.Page, u string, po *PageOptions) (d
 	}
 
 	return result, nil
+}
+
+func blockSubresources(page *rod.Page, po *PageOptions) (func(), error) {
+	if po == nil || !po.blockSubresources {
+		return func() {}, nil
+	}
+
+	router := page.HijackRequests()
+	if err := router.Add("*", "", func(h *rod.Hijack) {
+		if h.Request.Type() == proto.NetworkResourceTypeDocument {
+			h.ContinueRequest(&proto.FetchContinueRequest{})
+			return
+		}
+		h.Response.Fail(proto.NetworkErrorReasonBlockedByClient)
+	}); err != nil {
+		return nil, err
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		router.Run()
+	}()
+
+	return func() {
+		_ = router.Stop()
+		<-done
+	}, nil
 }
 
 func removeInvisibleElements(page *rod.Page) error {

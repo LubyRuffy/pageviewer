@@ -35,6 +35,8 @@ GOTOOLCHAIN=go1.24.2 go test ./cmd/pageviewer -run 'TestRunCLINormalizesBareURLB
 GOTOOLCHAIN=go1.24.2 go test ./... -count=1
 ```
 
+当前默认全仓测试应保持在约 `30s` 内；如果明显回升，优先检查是否重新引入了重复浏览器冷启动或新的固定等待。
+
 如果只想确认编译和测试发现阶段是否正常，而不跑完整行为测试：
 
 ```bash
@@ -82,6 +84,8 @@ go run ./cmd/pageviewer --url https://example.com --mode html --trace-id chat-20
 ## 测试约定
 
 - 浏览器集成测试的入口页面和静态资源都应通过 `net/http/httptest` 提供，不依赖真实外网
+- 非生命周期测试优先复用测试夹具中的共享浏览器和共享 browser-backed client，避免重复拉起 Chromium
+- 测试进程会主动收紧页面稳定等待 cap，新增本地页面测试不要再无差别依赖 `20s` 级等待
 - 新增 CLI 行为时，优先为 `cmd/pageviewer/app_test.go` 补测试
 - 成功结果只允许写标准输出
 - 错误结果只允许写标准错误

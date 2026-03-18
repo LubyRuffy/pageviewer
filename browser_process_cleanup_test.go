@@ -94,10 +94,11 @@ func TestBrowser_CloseStopsManagedChromium(t *testing.T) {
 }
 
 func TestNewBrowser_WithLeaklessOption(t *testing.T) {
-	browser, err := NewBrowser(WithLeakless(false))
-	require.NoError(t, err)
-	require.False(t, browser.leaklessEnabled)
-	require.NoError(t, browser.Close())
+	opts := &browserOptions{}
+	WithLeakless(false)(opts)
+
+	require.True(t, opts.LeaklessSet)
+	require.False(t, opts.Leakless)
 }
 
 func runBrowserCleanupHelper(userDataDir string, closeBrowser bool) error {

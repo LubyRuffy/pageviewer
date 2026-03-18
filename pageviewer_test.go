@@ -27,50 +27,29 @@ func resetDefaultBrowserForTest(t *testing.T) {
 }
 
 func TestGetBrowser(t *testing.T) {
-	tests := []struct {
-		name             string
-		debug            bool
-		proxy            string
-		ignoreCertErrors bool
-	}{
-		{
-			name:             "default settings",
-			debug:            false,
-			proxy:            "",
-			ignoreCertErrors: false,
-		},
-		{
-			name:             "with debug",
-			debug:            true,
-			proxy:            "",
-			ignoreCertErrors: false,
-		},
-		{
-			name:             "with proxy",
-			debug:            false,
-			proxy:            "http://localhost:8080",
-			ignoreCertErrors: false,
-		},
-		{
-			name:             "with ignore cert errors",
-			debug:            false,
-			proxy:            "",
-			ignoreCertErrors: true,
-		},
+	browser, err := NewBrowser()
+	assert.NoError(t, err)
+	if browser != nil {
+		defer browser.Close()
 	}
+	if browser == nil {
+		t.Error("GetBrowser() returned nil")
+	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			browser, err := NewBrowser(WithDebug(tt.debug), WithProxy(tt.proxy), WithIgnoreCertErrors(tt.ignoreCertErrors))
-			assert.NoError(t, err)
-			if browser != nil {
-				defer browser.Close()
-			}
-			if browser == nil {
-				t.Error("GetBrowser() returned nil")
-			}
-		})
-	}
+func TestBrowserOptions(t *testing.T) {
+	opts := &browserOptions{}
+
+	WithDebug(true)(opts)
+	WithProxy("http://localhost:8080")(opts)
+	WithIgnoreCertErrors(true)(opts)
+	WithLeakless(false)(opts)
+
+	assert.True(t, opts.Debug)
+	assert.Equal(t, "http://localhost:8080", opts.Proxy)
+	assert.True(t, opts.IgnoreCertErrors)
+	assert.True(t, opts.LeaklessSet)
+	assert.False(t, opts.Leakless)
 }
 
 func TestGetPage(t *testing.T) {

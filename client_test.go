@@ -59,13 +59,11 @@ func replaceWorkerProvisionTimeout(t *testing.T, d time.Duration) {
 }
 
 func TestStartCreatesClientWithWarmWorkers(t *testing.T) {
-	client, err := Start(context.Background(), Config{
+	client := newTestClient(t, Config{
 		PoolSize:       1,
 		Warmup:         1,
 		AcquireTimeout: time.Second,
 	})
-	require.NoError(t, err)
-	defer client.Close()
 
 	stats := client.Stats()
 	assert.Equal(t, 1, stats.TotalWorkers)

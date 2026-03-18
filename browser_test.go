@@ -50,19 +50,17 @@ func TestBrowser_WithIgnoreCertErrors(t *testing.T) {
 	s.StartTLS()
 	defer s.Close()
 
-	// 复用用户浏览器
-	b, err := NewBrowser()
-	assert.NoError(t, err)
+	// 共享的标准浏览器不应忽略无效证书
+	b := sharedTestBrowser(t)
 
 	vo := NewVisitOptions(WithWaitTimeout(time.Second * 20)).PageOptions
 
 	var html string
-	err = b.Run(s.URL, func(page *rod.Page) error {
+	err := b.Run(s.URL, func(page *rod.Page) error {
 		html = page.MustHTML()
 		return nil
 	}, vo)
 	assert.Error(t, err)
-	b.Close()
 
 	b, err = NewBrowser(WithIgnoreCertErrors(true))
 	assert.NoError(t, err)

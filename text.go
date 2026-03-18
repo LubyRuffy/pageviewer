@@ -56,7 +56,10 @@ func (c *Client) RawText(ctx context.Context, url string, opts ...RequestOption)
 		}
 	}()
 
-	result, err := c.browser.navigateTextPage(worker.page, url, ro.pageOptions())
+	po := ro.pageOptions()
+	po.blockSubresources = true
+
+	result, err := c.browser.navigateTextPage(worker.page, url, po)
 	trace.setResponse(result.response)
 	if err != nil {
 		state = workerStateBroken

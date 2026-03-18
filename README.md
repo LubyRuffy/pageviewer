@@ -83,7 +83,7 @@ go run ./cmd/pageviewer --url https://example.com --mode html --trace-id req-123
 - `--url` 不带 scheme 时，会先按 `https://` 规范化
 - `links`：抓取页面中的文本链接
 - `article`：抓取正文并输出 Markdown
-- `raw-text`：只读取主文档响应，适合文本型接口
+- `raw-text`：只读取主文档响应，并阻断图片、样式、字体等子资源请求，适合文本型接口或轻量抓取 HTML
 - `--json`：输出结构化结果，并支持重复传入 `--mode` 一次拿到多种结果
 - `--trace-id`：把一次交互 ID 传入请求，便于失败后追踪
 - 参数、输出结构和退出码详见 [docs/CLI.md](docs/CLI.md)

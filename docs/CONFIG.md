@@ -47,6 +47,10 @@ client, err := pageviewer.Start(ctx, pageviewer.Config{
 - `WithRemoveInvisibleDiv`
 - `WithBeforeRequest`
 
+请求行为补充：
+
+- `RawText` 会默认阻断主文档之外的子资源请求，例如图片、样式、字体、脚本和其他二进制资源
+
 示例：
 
 ```go

@@ -129,7 +129,7 @@ go run ./cmd/pageviewer --url https://example.com/article --mode article
 
 ### `raw-text`
 
-默认输出主文档响应正文：
+默认输出主文档响应正文。该模式会阻断主文档之外的子资源请求，例如图片、样式、字体、脚本和其他二进制资源：
 
 ```bash
 go run ./cmd/pageviewer --url https://example.com/api --mode raw-text
